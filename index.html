@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TornadoQC</title>
+    <meta
+      name="description"
+      content="Interactive map of SPC tornado reports with QC editing, DAT import, and correction export."
+    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="theme-dark">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="branding">
+          <span class="eyebrow">NOAA SPC</span>
+          <h1>TornadoQC</h1>
+        </div>
+
+        <p class="intro">
+          Review legacy report segments, import DAT damage records, edit start/end times and points, and export QC corrections.
+        </p>
+
+        <div class="import-panel">
+          <label class="upload-box" for="csvUpload">
+            <span>Upload report CSV</span>
+            <input id="csvUpload" type="file" accept=".csv" />
+          </label>
+
+          <label class="upload-box" for="datUpload">
+            <span>Import DAT data</span>
+            <input id="datUpload" type="file" accept=".dat,.txt,.csv" />
+          </label>
+        </div>
+
+        <div class="filters">
+          <div class="filter-row">
+            <label for="yearMin">Start year</label>
+            <span id="yearMinValue">1950</span>
+          </div>
+          <input id="yearMin" type="range" min="1950" max="2025" value="1950" />
+
+          <div class="filter-row">
+            <label for="yearMax">End year</label>
+            <span id="yearMaxValue">2025</span>
+          </div>
+          <input id="yearMax" type="range" min="1950" max="2025" value="2025" />
+
+          <div class="filter-row">
+            <label for="magnitudeMin">Minimum magnitude</label>
+            <span id="magnitudeValue">0</span>
+          </div>
+          <input id="magnitudeMin" type="range" min="0" max="5" step="1" value="0" />
+        </div>
+
+        <div class="actions">
+          <button id="resetViewBtn" type="button">Reset view</button>
+          <button id="themeToggle" type="button">Light mode</button>
+          <button id="exportCorrections" type="button">Export corrections</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat-card">
+            <span class="stat-label">Visible tracks</span>
+            <strong id="trackCount">0</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Max magnitude</span>
+            <strong id="maxMagnitude">0</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Longest path</span>
+            <strong id="maxLength">0 mi</strong>
+          </div>
+        </div>
+
+        <div class="legend">
+          <h2>Magnitude</h2>
+          <div class="legend-row"><span class="legend-swatch swatch-0"></span> F0 / EF0</div>
+          <div class="legend-row"><span class="legend-swatch swatch-1"></span> F1 / EF1</div>
+          <div class="legend-row"><span class="legend-swatch swatch-2"></span> F2 / EF2</div>
+          <div class="legend-row"><span class="legend-swatch swatch-3"></span> F3 / EF3</div>
+          <div class="legend-row"><span class="legend-swatch swatch-4"></span> F4 / EF4</div>
+          <div class="legend-row"><span class="legend-swatch swatch-5"></span> F5 / EF5</div>
+        </div>
+      </aside>
+
+      <main class="map-panel">
+        <div id="map" aria-label="Tornado map"></div>
+        <div id="status" class="status-banner">Loading NOAA Storm Prediction Center dataset…</div>
+
+        <section class="editor-panel">
+          <div class="editor-header">
+            <h2>QC editor</h2>
+            <button id="clearSelection" type="button" class="secondary">Clear selection</button>
+            <button id="saveChanges" type="button" class="primary">Save changes</button>
+          </div>
+
+          <div id="selectionEmpty" class="selection-empty">Select a tornado segment on the map to edit its times, coordinates, and notes.</div>
+
+          <form id="segmentForm" class="hidden">
+            <div class="field-row">
+              <label>
+                Report ID
+                <input id="reportId" type="text" />
+              </label>
+              <span id="selectionLabel" class="selection-label"></span>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                Begin date
+                <input id="beginDate" type="date" />
+              </label>
+              <label>
+                Begin time
+                <input id="beginTime" type="time" step="60" />
+              </label>
+              <label>
+                End date
+                <input id="endDate" type="date" />
+              </label>
+              <label>
+                End time
+                <input id="endTime" type="time" step="60" />
+              </label>
+
+              <label>
+                Begin lat
+                <input id="beginLat" type="number" step="0.0001" />
+              </label>
+              <label>
+                Begin lon
+                <input id="beginLon" type="number" step="0.0001" />
+              </label>
+              <label>
+                End lat
+                <input id="endLat" type="number" step="0.0001" />
+              </label>
+              <label>
+                End lon
+                <input id="endLon" type="number" step="0.0001" />
+              </label>
+            </div>
+
+            <label>
+              QC notes
+              <textarea id="qcNotes" rows="5" placeholder="Add note about corrections, mismatches, or DAT cross-checks..."></textarea>
+            </label>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
