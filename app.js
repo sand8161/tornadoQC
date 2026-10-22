@@ -505,6 +505,35 @@ async function handleTrackSelection(record, preserveMapView = true) {
   );
 }
 
+async function fetchJsonIfAvailable(url) {
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const isJsonLike = contentType.includes('application/json') || contentType.includes('text/json');
+    const text = await response.text();
+
+    if (!text || !text.trim()) {
+      return null;
+    }
+
+    if (!isJsonLike && !text.trim().startsWith('{') && !text.trim().startsWith('[')) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      return null;
+    }
+  } catch (error) {
+    return null;
+  }
+}
+
 async function fetchNoaaDatForTrack(record) {
   if (!record) {
     return null;
@@ -517,58 +546,45 @@ async function fetchNoaaDatForTrack(record) {
 
   const servicesRoot = 'https://services.dat.noaa.gov/arcgis/rest/services';
   const candidateUrls = [
-    servicesRoot,
+    `${servicesRoot}?f=json`,
     `${servicesRoot}/StormEvents/MapServer?f=json`,
     `${servicesRoot}/nws/MapServer?f=json`,
     `${servicesRoot}/nws/tornadoes/MapServer?f=json`,
   ];
 
-  const seen = new Set();
   for (const candidateUrl of candidateUrls) {
-    if (seen.has(candidateUrl)) {
+    const payload = await fetchJsonIfAvailable(candidateUrl);
+    if (!payload) {
       continue;
     }
-    seen.add(candidateUrl);
 
-    try {
-      const response = await fetch(candidateUrl, { cache: 'no-store' });
-      if (!response.ok) {
-        continue;
-      }
-
-      const payload = await response.json();
-      const serviceNames = [];
-
-      if (Array.isArray(payload?.services)) {
-        for (const service of payload.services) {
-          const name = String(service?.name || service?.serviceName || '').trim();
-          if (!name) {
-            continue;
-          }
-          if (/(tornado|storm|event|report)/i.test(name)) {
-            serviceNames.push(name);
-          }
+    const serviceNames = [];
+    if (Array.isArray(payload?.services)) {
+      for (const service of payload.services) {
+        const name = String(service?.name || service?.serviceName || '').trim();
+        if (!name) {
+          continue;
+        }
+        if (/(tornado|storm|event|report)/i.test(name)) {
+          serviceNames.push(name);
         }
       }
+    }
 
-      if (candidateUrl === servicesRoot && !serviceNames.length) {
-        const fallback = ['StormEvents', 'nws', 'tornadoes', 'weather'];
-        serviceNames.push(...fallback.filter((name) => name));
-      }
+    if (candidateUrl === `${servicesRoot}?f=json` && !serviceNames.length) {
+      serviceNames.push('StormEvents', 'nws', 'tornadoes');
+    }
 
-      const urls = serviceNames.map((name) => `${servicesRoot}/${name}/MapServer/0/query?where=1=1&outFields=*&f=json`);
-      if (candidateUrl.includes('/MapServer?f=json')) {
-        urls.push(candidateUrl.replace(/\?f=json$/i, '/0/query?where=1=1&outFields=*&f=json'));
-      }
+    const urls = serviceNames.map((name) => `${servicesRoot}/${encodeURIComponent(name)}/MapServer/0/query?where=1=1&outFields=*&f=json`);
+    if (candidateUrl.endsWith('/MapServer?f=json')) {
+      urls.push(candidateUrl.replace(/\?f=json$/i, '/0/query?where=1=1&outFields=*&f=json'));
+    }
 
-      for (const url of urls) {
-        const matches = await queryNoaaDatService(url, record, year);
-        if (matches && matches.length) {
-          return matches;
-        }
+    for (const url of urls) {
+      const matches = await queryNoaaDatService(url, record, year);
+      if (matches && matches.length) {
+        return matches;
       }
-    } catch (error) {
-      console.warn('NOAA DAT service lookup failed:', error);
     }
   }
 
@@ -595,46 +611,40 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
   const serviceEndpoint = serviceUrl.replace(/\/query\??.*$/i, '');
   const queryUrl = `${serviceEndpoint}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=50`;
 
-  try {
-    const response = await fetch(queryUrl, { cache: 'no-store' });
-    if (!response.ok) {
-      return [];
-    }
-
-    const payload = await response.json();
-    const features = Array.isArray(payload?.features) ? payload.features : [];
-    if (!features.length) {
-      return [];
-    }
-
-    const filtered = features.filter((feature) => {
-      const attrs = feature?.attributes || {};
-      const dateValues = [
-        attrs.DATE,
-        attrs.BEGIN_DATE,
-        attrs.END_DATE,
-        attrs.EVENT_DATE,
-        attrs.date,
-        attrs.begin_date,
-        attrs.end_date,
-        attrs.event_date,
-      ]
-        .filter((value) => value !== undefined && value !== null && value !== '')
-        .map((value) => String(value));
-
-      if (!dateValues.length) {
-        return true;
-      }
-
-      const normalized = dateValues.map((value) => normalizeDateString(value));
-      return normalized.some((value) => value && value.slice(0, 4) === String(targetYear));
-    });
-
-    return filtered.length ? filtered : features.slice(0, 5);
-  } catch (error) {
-    console.warn('ArcGIS NOAA DAT query failed:', error);
+  const payload = await fetchJsonIfAvailable(queryUrl);
+  if (!payload) {
     return [];
   }
+
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  if (!features.length) {
+    return [];
+  }
+
+  const filtered = features.filter((feature) => {
+    const attrs = feature?.attributes || {};
+    const dateValues = [
+      attrs.DATE,
+      attrs.BEGIN_DATE,
+      attrs.END_DATE,
+      attrs.EVENT_DATE,
+      attrs.date,
+      attrs.begin_date,
+      attrs.end_date,
+      attrs.event_date,
+    ]
+      .filter((value) => value !== undefined && value !== null && value !== '')
+      .map((value) => String(value));
+
+    if (!dateValues.length) {
+      return true;
+    }
+
+    const normalized = dateValues.map((value) => normalizeDateString(value));
+    return normalized.some((value) => value && value.slice(0, 4) === String(targetYear));
+  });
+
+  return filtered.length ? filtered : features.slice(0, 5);
 }
 
 function normalizeArcgisDatFeature(feature) {
