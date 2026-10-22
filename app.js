@@ -26,9 +26,9 @@ async function init() {
     preferCanvas: true,
   }).setView([38.5, -98.35], 4);
 
-  const tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    attribution: '&copy; OpenStreetMap contributors',
   });
   tiles.addTo(state.map);
 
@@ -690,18 +690,38 @@ function firstNonEmpty() {
   return '';
 }
 
-function readFloat(row, keys) {
+function readFloat(obj, keys) {
   for (const key of keys) {
-    const value = row[key];
+    const value = obj && obj[key];
     if (value === undefined || value === null || value === '') {
       continue;
     }
-    const parsed = Number.parseFloat(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
+
+    const parsed = Number.parseFloat(String(value).replace(/,/g, '').trim());
+    if (!Number.isFinite(parsed)) {
+      continue;
     }
+
+    if (parsed === 0 || parsed === -99900 || Math.abs(parsed) >= 99900) {
+      return Number.NaN;
+    }
+
+    return parsed;
   }
   return Number.NaN;
+}
+
+function isMissingCoordinate(value) {
+  if (value === undefined || value === null || value === '') {
+    return true;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return true;
+  }
+
+  return parsed === 0 || parsed === -99900 || Math.abs(parsed) >= 99900;
 }
 
 function normalizeMagnitude(value) {
