@@ -269,27 +269,65 @@ function updateFilterReadouts() {
   document.getElementById('magnitudeValue').textContent = magnitudeInput.value;
 }
 
+async function loadBundledReportParts() {
+  const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
+  const loaded = [];
+
+  for (const fileName of fileNames) {
+    try {
+      const response = await fetch(`./${fileName}`, { cache: 'no-store' });
+      if (!response.ok) {
+        continue;
+      }
+      const text = await response.text();
+      const parsed = Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      const rows = parsed.data
+        .map((row) => normalizeRow(row, 'CSV'))
+        .filter(Boolean);
+
+      if (rows.length) {
+        loaded.push(...rows);
+      }
+    } catch (error) {
+      console.warn(`Skipping bundled CSV ${fileName}:`, error);
+    }
+  }
+
+  return loaded;
+}
+
 async function loadData() {
   try {
-    const csvText = await fetchCsvWithFallback();
-    const parsed = Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (header) => String(header).trim(),
-    });
+    let rows = await loadBundledReportParts();
 
-    state.rows = parsed.data
-      .map((row) => normalizeRow(row, 'SPC'))
-      .filter(Boolean)
+    if (!rows.length) {
+      const csvText = await fetchCsvWithFallback();
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      rows = parsed.data
+        .map((row) => normalizeRow(row, 'SPC'))
+        .filter(Boolean);
+    }
+
+    state.rows = rows
       .sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
 
     if (!state.rows.length) {
-      throw new Error('No usable tornado rows were found in the SPC CSV.');
+      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
     }
 
     refreshYearBounds();
-    renderFilteredData({ preserveMapView: false });
-    setStatus(`Loaded ${state.rows.length.toLocaleString()} SPC records from ${state.yearMin} to ${state.yearMax}.`);
+    renderFilteredData({ preserveMapView: true });
+    setStatus(`Loaded ${state.rows.length.toLocaleString()} tornado records from the bundled report files.`);
   } catch (error) {
     console.error(error);
     setStatus(
@@ -444,7 +482,7 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   state.selectedId = record.id;
   renderEditor();
-  renderFilteredData({ preserveMapView });
+  renderFilteredData({ preserveMapView: true });
 
   const matches = await fetchNoaaDatForTrack(record);
   state.noaaDatMatches = matches || [];
