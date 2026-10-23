@@ -24,6 +24,324 @@ const state = {
   datPolygonsVisible: true,
 };
 
+// --- UTILITY PARSING FUNCTIONS (Moved up to prevent ReferenceError) ---
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== 'null' && trimmed !== 'NaN') {
+        return value;
+      }
+      continue;
+    }
+    if (value !== '' && value !== null && value !== undefined) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function readFloat(value, fallback = null) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  const text = String(value).trim().replace(/,/g, '');
+  if (!text || text === 'null' || text === 'NaN') {
+    return fallback;
+  }
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeDateString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const numValue = Number(value);
+  if (!isNaN(numValue) && numValue > 10000000000) {
+    const dt = new Date(numValue);
+    if (!isNaN(dt.getTime())) {
+      return dt.toISOString().split('T')[0];
+    }
+  }
+
+  const text = String(value).trim();
+  if (!text || text === 'null' || text === 'NaN') {
+    return null;
+  }
+
+  const clean = text.replace(/Z$/, '');
+
+  const isoMatch = clean.match(/^((\d{4})-(\d{2})-(\d{2}))(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (isoMatch) {
+    const [, , year, month, day] = isoMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const compactMatch = clean.match(/^(\d{4})(\d{2})(\d{2})(?:-(\d{4}))?$/);
+  if (compactMatch) {
+    const [, year, month, day] = compactMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const slashMatch = clean.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  if (slashMatch) {
+    const [, year, month, day] = slashMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const spaceMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (spaceMatch) {
+    const [, month, day, year] = spaceMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+function normalizeTimeString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  if (!text || text === 'null' || text === 'NaN') {
+    return null;
+  }
+
+  const compact = text.match(/^(\d{8})-(\d{4})$/);
+  if (compact) {
+    const [, , time] = compact;
+    const hour = time.slice(0, 2);
+    const minute = time.slice(2, 4);
+    return `${hour}:${minute}`;
+  }
+
+  const hms = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hms) {
+    const [, hour, minute] = hms;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  const hourMinute = text.match(/^(\d{4})$/);
+  if (hourMinute) {
+    const [, raw] = hourMinute;
+    return `${raw.slice(0, 2)}:${raw.slice(2, 4)}`;
+  }
+
+  return null;
+}
+
+function getYearFromDate(dateValue) {
+  const normalized = normalizeDateString(dateValue);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^(\d{4})-/);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizeRow(row, source) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+
+  const beginDate = normalizeDateString(firstNonEmpty(
+    row.beginDate,
+    row.begin_date,
+    row.BEGIN_DATE,
+    row.date,
+    row.DATE,
+    row.eventDate,
+    row.event_date,
+    row.event_date_utc,
+    row.begin_ymd,
+    row.BEGIN_YMD,
+    row['BEGIN DATE'],
+    row['BEGIN DATE (UTC)'],
+    row['Date'],
+    row.beginTimestamp
+  ));
+
+  const endDate = normalizeDateString(firstNonEmpty(
+    row.endDate,
+    row.end_date,
+    row.END_DATE,
+    row.end_ymd,
+    row.END_YMD,
+    row['END DATE'],
+    row.endTimestamp
+  ));
+
+  const beginTime = normalizeTimeString(firstNonEmpty(
+    row.beginTime,
+    row.begin_time,
+    row.BEGIN_TIME,
+    row['BEGIN TIME'],
+    row.time,
+    row.TIME,
+    row['Time'],
+    row.beginTimestamp
+  ));
+
+  const endTime = normalizeTimeString(firstNonEmpty(
+    row.endTime,
+    row.end_time,
+    row.END_TIME,
+    row['END TIME']
+  ));
+
+  const beginLatitude = readFloat(firstNonEmpty(
+    row.beginLatitude,
+    row.begin_lat,
+    row.BEGIN_LAT,
+    row.BEGINLAT,
+    row.lat,
+    row.latitude,
+    row['Begin Lat'],
+    row.slat
+  ));
+
+  const beginLongitude = readFloat(firstNonEmpty(
+    row.beginLongitude,
+    row.begin_lon,
+    row.BEGIN_LON,
+    row.BEGINLON,
+    row.lon,
+    row.longitude,
+    row['Begin Lon'],
+    row.slon
+  ));
+
+  let endLatitude = readFloat(firstNonEmpty(
+    row.endLatitude,
+    row.end_lat,
+    row.END_LAT,
+    row.ENDLAT,
+    row['End Lat'],
+    row.elat
+  ));
+
+  let endLongitude = readFloat(firstNonEmpty(
+    row.endLongitude,
+    row.end_lon,
+    row.END_LON,
+    row.ENDLON,
+    row['End Lon'],
+    row.elon
+  ));
+
+  const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
+
+  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude)) {
+    return null;
+  }
+
+  if (invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
+    endLatitude = beginLatitude;
+    endLongitude = beginLongitude;
+  }
+
+  const magnitudeCandidates = [
+    row.magnitude,
+    row.mag,
+    row.MAG,
+    row.fscale,
+    row.f_scale,
+    row.F_SCALE,
+    row.f2,
+    row.f_2,
+    row.F2,
+    row.efscale,
+    row.ef_scale,
+    row.EFSCALE,
+    row.EF_SCALE,
+    row['F scale'],
+    row['F Scale'],
+    row['Magnitude'],
+  ];
+
+  let magnitude = 0;
+  for (const candidate of magnitudeCandidates) {
+    const parsed = readFloat(candidate, null);
+    if (parsed !== null) {
+      magnitude = parsed;
+      break;
+    }
+  }
+
+  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
+    const match = row.magnitude.trim().match(/(\d+)/);
+    if (match) {
+      magnitude = Number(match[1]);
+    }
+  }
+
+  const id = firstNonEmpty(
+    row.stormEventsReportID, 
+    row.StormEventsReportID,
+    row.oneTorID,
+    row.id,
+    row.reportId,
+    row.report_id,
+    row.REPORT_ID,
+    row['Report ID'],
+    row.event_id,
+    row.EVENT_ID,
+    row.objectid,
+    row.OBJECTID,
+    row.om,
+    `${beginDate || 'unknown'}-${beginTime || '00:00'}-${beginLatitude || 0}-${beginLongitude || 0}`
+  );
+
+  const normalized = {
+    id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
+    reportId: String(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
+    source,
+    beginDate: beginDate || endDate || '0000-00-00',
+    beginTime: beginTime || '00:00',
+    endDate: endDate || beginDate || '0000-00-00',
+    endTime: endTime || beginTime || '00:00',
+    beginLatitude,
+    beginLongitude,
+    endLatitude,
+    endLongitude,
+    magnitude,
+    year: Number(firstNonEmpty(row.year, row.yr, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
+    county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
+    state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
+    lengthMiles: readFloat(firstNonEmpty(row.tornadoLength, row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
+    widthYards: readFloat(firstNonEmpty(row.tornadoWidth, 0), 0),
+    injuries: readFloat(row.injuriesDirect, 0),
+    deaths: readFloat(row.deathsDirect, 0),
+    details: firstNonEmpty(row.details, row.overview, '')
+  };
+
+  if (normalized.beginDate === '0000-00-00' || !normalized.beginLatitude || !normalized.beginLongitude) {
+    return null;
+  }
+
+  return normalized;
+}
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function loadBundledReportParts() {
@@ -830,144 +1148,6 @@ function setStatus(message, isError = false) {
 
   statusEl.innerHTML = message || '';
   statusEl.classList.toggle('error', Boolean(isError));
-}
-
-function firstNonEmpty(...values) {
-  for (const value of values) {
-    if (value === null || value === undefined) {
-      continue;
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (trimmed && trimmed !== 'null' && trimmed !== 'NaN') {
-        return value;
-      }
-      continue;
-    }
-
-    if (value !== '' && value !== null && value !== undefined) {
-      return value;
-    }
-  }
-
-  return null;
-}
-
-function readFloat(value, fallback = null) {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-
-  const text = String(value).trim().replace(/,/g, '');
-  if (!text || text === 'null' || text === 'NaN') {
-    return fallback;
-  }
-
-  const numeric = Number(text);
-  return Number.isFinite(numeric) ? numeric : fallback;
-}
-
-function normalizeDateString(value) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const numValue = Number(value);
-  if (!isNaN(numValue) && numValue > 10000000000) {
-    const dt = new Date(numValue);
-    if (!isNaN(dt.getTime())) {
-      return dt.toISOString().split('T')[0];
-    }
-  }
-
-  const text = String(value).trim();
-  if (!text || text === 'null' || text === 'NaN') {
-    return null;
-  }
-
-  const clean = text.replace(/Z$/, '');
-
-  const isoMatch = clean.match(/^((\d{4})-(\d{2})-(\d{2}))(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (isoMatch) {
-    const [, , year, month, day] = isoMatch;
-    const dt = new Date(Number(year), Number(month) - 1, Number(day));
-    if (!Number.isNaN(dt.getTime())) {
-      return `${year}-${month}-${day}`;
-    }
-  }
-
-  const compactMatch = clean.match(/^(\d{4})(\d{2})(\d{2})(?:-(\d{4}))?$/);
-  if (compactMatch) {
-    const [, year, month, day] = compactMatch;
-    const dt = new Date(Number(year), Number(month) - 1, Number(day));
-    if (!Number.isNaN(dt.getTime())) {
-      return `${year}-${month}-${day}`;
-    }
-  }
-
-  const slashMatch = clean.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
-  if (slashMatch) {
-    const [, year, month, day] = slashMatch;
-    const dt = new Date(Number(year), Number(month) - 1, Number(day));
-    if (!Number.isNaN(dt.getTime())) {
-      return `${year}-${month}-${day}`;
-    }
-  }
-
-  const spaceMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (spaceMatch) {
-    const [, month, day, year] = spaceMatch;
-    const dt = new Date(Number(year), Number(month) - 1, Number(day));
-    if (!Number.isNaN(dt.getTime())) {
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    }
-  }
-
-  return null;
-}
-
-function normalizeTimeString(value) {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (!text || text === 'null' || text === 'NaN') {
-    return null;
-  }
-
-  const compact = text.match(/^(\d{8})-(\d{4})$/);
-  if (compact) {
-    const [, , time] = compact;
-    const hour = time.slice(0, 2);
-    const minute = time.slice(2, 4);
-    return `${hour}:${minute}`;
-  }
-
-  const hms = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (hms) {
-    const [, hour, minute] = hms;
-    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-  }
-
-  const hourMinute = text.match(/^(\d{4})$/);
-  if (hourMinute) {
-    const [, raw] = hourMinute;
-    return `${raw.slice(0, 2)}:${raw.slice(2, 4)}`;
-  }
-
-  return null;
-}
-
-function getYearFromDate(dateValue) {
-  const normalized = normalizeDateString(dateValue);
-  if (!normalized) {
-    return null;
-  }
-
-  const match = normalized.match(/^(\d{4})-/);
-  return match ? Number(match[1]) : null;
 }
 
 async function fetchNoaaDatForTrack(record) {
