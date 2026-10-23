@@ -623,7 +623,7 @@ function renderDatLayer(features) {
       if (!feature || !feature.geometry) return null;
 
       const geometry = feature.geometry;
-      const attrs = feature.attributes || {};
+      const attrs = feature.properties || feature.attributes || {};
       const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
       const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
 
@@ -1311,11 +1311,12 @@ async function fetchNoaaDatForTrack(record) {
       const features = Array.isArray(payload && payload.features) ? payload.features : [];
 
       for (const feature of features) {
-        if (!feature || !feature.attributes) {
+        // Look for .properties (GeoJSON) instead of .attributes
+        if (!feature || (!feature.properties && !feature.attributes)) {
           continue;
         }
 
-        const attrs = feature.attributes;
+        const attrs = feature.properties || feature.attributes;
         const valueSet = [
           attrs.stormdate,
           attrs.event_date,
@@ -1338,7 +1339,7 @@ async function fetchNoaaDatForTrack(record) {
           continue;
         }
 
-        const dedupeKey = `${layerId}:${feature.attributes.objectid || feature.attributes.OBJECTID || feature.attributes.event_id || feature.attributes.EVENT_ID || JSON.stringify(feature.geometry)}`;
+        const dedupeKey = `${layerId}:${attrs.objectid || attrs.OBJECTID || attrs.event_id || attrs.EVENT_ID || JSON.stringify(feature.geometry)}`;
         if (!unique.has(dedupeKey)) {
           unique.set(dedupeKey, feature);
         }
