@@ -7,6 +7,7 @@ const state = {
   filtered: [],
   map: null,
   layerGroup: null,
+  datLayerGroup: null,
   polyLines: new Map(),
   allBounds: null,
   yearMin: 1950,
@@ -37,6 +38,7 @@ async function init() {
   tiles.addTo(state.map);
 
   state.layerGroup = L.layerGroup().addTo(state.map);
+  state.datLayerGroup = L.layerGroup().addTo(state.map);
   bindControls();
   updateSpcControls();
   applyTheme('dark');
@@ -460,6 +462,7 @@ function renderFilteredData(options = {}) {
   state.filtered = filtered;
   state.polyLines.clear();
   state.layerGroup.clearLayers();
+  clearDatLayer();
 
   if (!filtered.length) {
     document.getElementById('trackCount').textContent = '0';
@@ -566,6 +569,7 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   const matches = await fetchNoaaDatForTrack(record);
   state.noaaDatMatches = matches || [];
+  renderDatPointsOnMap(matches || []);
 
   if (matches && matches.length) {
     const first = matches[0];
@@ -585,149 +589,73 @@ async function handleTrackSelection(record, preserveMapView = true) {
   );
 }
 
-async function fetchJsonIfAvailable(url) {
-  const candidateUrls = [
-    url,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  ];
-
-  const seen = new Set();
-  for (const candidateUrl of candidateUrls) {
-    if (!candidateUrl || seen.has(candidateUrl)) {
-      continue;
-    }
-    seen.add(candidateUrl);
-
-    try {
-      const response = await fetch(candidateUrl, { cache: 'no-store' });
-      if (!response.ok) {
-        continue;
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      const text = await response.text();
-      if (!text || !text.trim()) {
-        continue;
-      }
-
-      const looksLikeJson = contentType.includes('application/json') || contentType.includes('text/json') || text.trim().startsWith('{') || text.trim().startsWith('[');
-      if (!looksLikeJson) {
-        continue;
-      }
-
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        continue;
-      }
-    } catch (error) {
-      continue;
-    }
+function clearDatLayer() {
+  if (state.datLayerGroup) {
+    state.datLayerGroup.clearLayers();
   }
-
-  return null;
+  state.noaaDatMatches = [];
 }
 
-async function fetchNoaaDatForTrack(record) {
-  if (!record) {
-    return null;
-  }
-
-  const year = Number(record.year || getYearFromDate(record.beginDate) || getYearFromDate(record.endDate));
-  if (!Number.isFinite(year) || year <= 0) {
-    return null;
-  }
-
-  const serviceUrl = 'https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/0';
-  const rawDate = normalizeDateString(record.beginDate || record.endDate);
-  const beginDate = rawDate || `${year}-01-01`;
-  const endDate = addDays(beginDate, 2);
-
-  const where = `stormdate >= date '${beginDate}' AND stormdate < date '${endDate}'`;
-  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=stormdate,lat,lon,damage_txt,efscale,office,event_id,damage,injuries,deaths,comments&f=json&resultRecordCount=100`;
-  const payload = await fetchJsonIfAvailable(queryUrl);
-  if (!payload) {
-    return null;
-  }
-
-  const features = Array.isArray(payload?.features) ? payload.features : [];
-  if (!features.length) {
-    return null;
-  }
-
-  const filtered = features.filter((feature) => {
-    const attrs = feature?.attributes || {};
-    const dateValue = attrs.stormdate;
-    if (dateValue === undefined || dateValue === null || dateValue === '') {
-      return true;
-    }
-
-    const normalizedDate = typeof dateValue === 'number'
-      ? new Date(dateValue).toISOString().slice(0, 10)
-      : normalizeDateString(String(dateValue));
-
-    if (!normalizedDate) {
-      return true;
-    }
-
-    return normalizedDate >= beginDate && normalizedDate < endDate;
-  });
-
-  return filtered.length ? filtered : features.slice(0, 20);
-}
-
-async function queryNoaaDatService(serviceUrl, record, targetYear) {
-  if (!serviceUrl || !record) {
-    return [];
-  }
-
-  const rawDate = normalizeDateString(record.beginDate || record.endDate);
-  const beginDate = rawDate || `${targetYear}-01-01`;
-  const nextDay = addDays(beginDate, 1);
-
-  const where = `stormdate >= date '${beginDate}' AND stormdate < date '${nextDay}'`;
-  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=stormdate,lat,lon,damage_txt,efscale,office,event_id,damage,injuries,deaths,comments&f=json&resultRecordCount=100`;
-
-  const payload = await fetchJsonIfAvailable(queryUrl);
-  if (!payload) {
-    return [];
-  }
-
-  const features = Array.isArray(payload?.features) ? payload.features : [];
-  if (!features.length) {
-    return [];
-  }
-
-  return features;
-}
-
-async function handleTrackSelection(record, preserveMapView = true) {
-  if (!record) {
+function renderDatPointsOnMap(features) {
+  clearDatLayer();
+  if (!features || !features.length || !state.datLayerGroup) {
     return;
   }
 
-  state.selectedId = record.id;
-  renderEditor();
-  renderFilteredData({ preserveMapView: true });
-
-  const matches = await fetchNoaaDatForTrack(record);
-  state.noaaDatMatches = matches || [];
-
-  if (matches && matches.length) {
-    const first = matches[0];
-    const normalized = normalizeArcgisDatFeature(first);
-    if (normalized) {
-      setStatus(
-        `Selected ${record.reportId || record.id}. NOAA DAT matched ${matches.length} record(s) for ${record.beginDate || record.endDate || 'this date'}.`,
-        false
-      );
-      return;
+  const markers = features.map((feature) => {
+    const attributes = feature?.attributes || {};
+    const lat = Number(attributes.lat ?? attributes.LAT ?? attributes.latitude ?? attributes.y);
+    const lon = Number(attributes.lon ?? attributes.LON ?? attributes.longitude ?? attributes.x);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
     }
-  }
 
-  setStatus(
-    `Selected ${record.reportId || record.id}. No NOAA DAT records matched the track date in the ArcGIS service lookup.`,
-    false
-  );
+    const efScale = String(attributes.efscale ?? attributes.EFSCALE ?? attributes.ef_scale ?? 'N/A');
+    const color = datColorByEf(efScale);
+
+    const marker = L.circleMarker([lat, lon], {
+      radius: 6,
+      color: '#ffffff',
+      weight: 1,
+      fillColor: color,
+      fillOpacity: 1,
+    });
+
+    const popupHtml = `
+      <div class="popup-title">NOAA DAT</div>
+      <div class="popup-grid">
+        <span>Event</span><strong>${attributes.event_id || attributes.EVENT_ID || 'N/A'}</strong>
+        <span>EF</span><strong>${efScale}</strong>
+        <span>Office</span><strong>${attributes.office || attributes.OFFICE || 'N/A'}</strong>
+        <span>Damage</span><strong>${attributes.damage_txt || attributes.DAMAGE_TXT || 'N/A'}</strong>
+        <span>Lat/Lon</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
+      </div>
+    `;
+    marker.bindPopup(popupHtml);
+    return marker;
+  }).filter(Boolean);
+
+  markers.forEach((marker) => marker.addTo(state.datLayerGroup));
+}
+
+function datColorByEf(value) {
+  const text = String(value || '').trim().toUpperCase();
+  const palette = {
+    EF5: '#9d174d',
+    EF4: '#dc2626',
+    EF3: '#f59e0b',
+    'EF3+': '#f59e0b',
+    EF2: '#facc15',
+    EF1: '#4ade80',
+    EF0: '#22d3ee',
+    EFU: '#94a3b8',
+    TSTM: '#a78bfa',
+    'TSTM/WIND': '#a78bfa',
+    WIND: '#a78bfa',
+    TROPICAL: '#f97316',
+    'N/A': '#cbd5e1',
+    UNKNOWN: '#cbd5e1',
+    '<NULL>': '#cbd5e1',
+  };
+  return palette[text] || '#60a5fa';
 }
