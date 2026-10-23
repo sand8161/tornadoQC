@@ -1277,7 +1277,7 @@ async function fetchNoaaDatForTrack(record) {
     return [];
   }
 
-const layerIds = Array.from({ length: 16 }, (_, index) => index);
+  const layerIds = [0, 1, 2]; // Only query the valid Points, Paths, and Polygons layers
   const unique = new Map();
 
   // Create a 0.5 degree (~30 mile) bounding box around the tornado path
