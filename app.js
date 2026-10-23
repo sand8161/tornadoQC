@@ -174,8 +174,8 @@ function bindControls() {
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
-  if (yearMinInput && yearMaxInput) {
-    yearMinInput.addEventListener('input', () => {
+if (yearMinInput && yearMaxInput) {
+    yearMinInput.addEventListener('change', () => { // Changed from 'input' to 'change'
       const parsed = Number(yearMinInput.value);
       if (parsed > Number(yearMaxInput.value)) {
         yearMaxInput.value = parsed;
@@ -185,7 +185,7 @@ function bindControls() {
       renderFilteredData({ preserveMapView: true });
     });
 
-    yearMaxInput.addEventListener('input', () => {
+    yearMaxInput.addEventListener('change', () => { // Changed from 'input' to 'change'
       const parsed = Number(yearMaxInput.value);
       if (parsed < Number(yearMinInput.value)) {
         yearMinInput.value = parsed;
@@ -197,7 +197,7 @@ function bindControls() {
   }
 
   if (magnitudeInput) {
-    magnitudeInput.addEventListener('input', () => {
+    magnitudeInput.addEventListener('change', () => { // Changed from 'input' to 'change'
       state.minMagnitude = Number(magnitudeInput.value);
       updateFilterReadouts();
       renderFilteredData();
@@ -1136,7 +1136,7 @@ function normalizeRow(row, source) {
   }
 
   const id = firstNonEmpty(
-    row.StormEventsReportID,
+    row.stormEventsReportID,
     row.id,
     row.reportId,
     row.report_id,
