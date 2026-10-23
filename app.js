@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function loadBundledReportParts() {
   const fileNames = [
-    '1950-2026_Tornado_Reports_part1_2.csv',
+    '1950-2026_Tornado_Reports_part1.csv',
     '1950-2026_Tornado_Reports_part2.csv',
     '1950-2026_Tornado_Reports_part3.csv',
     '1950-2026_Tornado_Reports_part4.csv',
@@ -999,88 +999,33 @@ function normalizeRow(row, source) {
     return null;
   }
 
-  const beginDate = normalizeDateString(firstNonEmpty(
-    row.beginDate,
-    row.begin_date,
-    row.BEGIN_DATE,
-    row.date,
-    row.DATE,
-    row.eventDate,
-    row.event_date,
-    row.event_date_utc,
-    row.begin_ymd,
-    row.BEGIN_YMD,
-    row['BEGIN DATE'],
-    row['BEGIN DATE (UTC)'],
-    row['Date']
-  ));
-
-  const endDate = normalizeDateString(firstNonEmpty(
-    row.endDate,
-    row.end_date,
-    row.END_DATE,
-    row.end_ymd,
-    row.END_YMD,
-    row['END DATE']
-  ));
-
-  const beginTime = normalizeTimeString(firstNonEmpty(
-    row.beginTime,
-    row.begin_time,
-    row.BEGIN_TIME,
-    row['BEGIN TIME'],
-    row.time,
-    row.TIME,
-    row['Time']
-  ));
-
-  const endTime = normalizeTimeString(firstNonEmpty(
-    row.endTime,
-    row.end_time,
-    row.END_TIME,
-    row['END TIME']
-  ));
-
   const beginLatitude = readFloat(firstNonEmpty(
-    row.beginLatitude,
-    row.begin_lat,
-    row.BEGIN_LAT,
-    row.BEGINLAT,
-    row.lat,
-    row.latitude,
-    row['Begin Lat']
+    row.beginLatitude, row.begin_lat, row.BEGIN_LAT, row.BEGINLAT, row.lat, row.latitude, row['Begin Lat'], row.slat
   ));
 
   const beginLongitude = readFloat(firstNonEmpty(
-    row.beginLongitude,
-    row.begin_lon,
-    row.BEGIN_LON,
-    row.BEGINLON,
-    row.lon,
-    row.longitude,
-    row['Begin Lon']
+    row.beginLongitude, row.begin_lon, row.BEGIN_LON, row.BEGINLON, row.lon, row.longitude, row['Begin Lon'], row.slon
   ));
 
-  const endLatitude = readFloat(firstNonEmpty(
-    row.endLatitude,
-    row.end_lat,
-    row.END_LAT,
-    row.ENDLAT,
-    row['End Lat']
+  let endLatitude = readFloat(firstNonEmpty(
+    row.endLatitude, row.end_lat, row.END_LAT, row.ENDLAT, row['End Lat'], row.elat
   ));
 
-  const endLongitude = readFloat(firstNonEmpty(
-    row.endLongitude,
-    row.end_lon,
-    row.END_LON,
-    row.ENDLON,
-    row['End Lon']
+  let endLongitude = readFloat(firstNonEmpty(
+    row.endLongitude, row.end_lon, row.END_LON, row.ENDLON, row['End Lon'], row.elon
   ));
 
   const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
 
-  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude) || invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
+  // Only reject the row if the BEGIN coordinates are invalid
+  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude)) {
     return null;
+  }
+
+  // If END coordinates are 0 or missing (brief touchdowns), default them to the BEGIN coordinates
+  if (invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
+    endLatitude = beginLatitude;
+    endLongitude = beginLongitude;
   }
 
   const magnitudeCandidates = [
