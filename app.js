@@ -1277,21 +1277,31 @@ async function fetchNoaaDatForTrack(record) {
     return [];
   }
 
-  const layerIds = [0, 1, 2]; // Only query the valid Points, Paths, and Polygons layers
+  const layerIds = [0, 1, 2];
   const unique = new Map();
 
-  // Create a 0.5 degree (~30 mile) bounding box around the tornado path
   const xMin = Math.min(record.beginLongitude, record.endLongitude) - 0.5;
   const yMin = Math.min(record.beginLatitude, record.endLatitude) - 0.5;
   const xMax = Math.max(record.beginLongitude, record.endLongitude) + 0.5;
   const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
   const bbox = `${xMin},${yMin},${xMax},${yMax}`;
 
-  for (const layerId of layerIds) {
-    // Append the bounding box and spatial relation to the ArcGIS query
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=1%3D1&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;
+  // Extract the target date (e.g. "2013-05-20")
+  const targetDate = normalizeDateString(firstNonEmpty(record.beginDate, record.endDate));
+  
+  // Build a strict date filter for the ArcGIS server
+  let whereClause = '1%3D1';
+  if (targetDate) {
+    const dt = new Date(targetDate);
+    // Create a 48-hour window to catch time zone overlaps
+    const start = new Date(dt.getTime() - 86400000).toISOString().split('T')[0];
+    const end = new Date(dt.getTime() + 86400000).toISOString().split('T')[0];
+    whereClause = encodeURIComponent(`stormdate >= timestamp '${start} 00:00:00' AND stormdate <= timestamp '${end} 23:59:59'`);
+  }
 
-    try {
+  for (const layerId of layerIds) {
+    // Send both the spatial box AND the date filter to the server
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=${whereClause}&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;    try {
       const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) {
         continue;
