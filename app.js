@@ -55,6 +55,41 @@ async function loadBundledReportParts() {
   return loaded;
 }
 
+async function fetchCsvWithFallback() {
+  try {
+    const response = await fetch(SPC_URL, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Primary SPC fetch failed with status ${response.status}`);
+    }
+    return await response.text();
+  } catch (primaryError) {
+    console.warn('Primary SPC CSV fetch failed, trying fallback.', primaryError);
+    const fallbackResponse = await fetch(FALLBACK_URL, { cache: 'no-store' });
+    if (!fallbackResponse.ok) {
+      throw new Error(`SPC fallback fetch failed with status ${fallbackResponse.status}`);
+    }
+    return fallbackResponse.text();
+  }
+}
+
+async function loadSpcRows() {
+  try {
+    const csvText = await fetchCsvWithFallback();
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => String(header).trim(),
+    });
+
+    return parsed.data
+      .map((row) => normalizeRow(row, 'SPC'))
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('Unable to load SPC rows:', error);
+    return [];
+  }
+}
+
 async function loadData() {
   try {
     let rows = await loadBundledReportParts();
@@ -684,10 +719,36 @@ function updateFilterReadouts() {
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
   const magnitudeInput = document.getElementById('magnitudeMin');
+  const yearRangeValue = document.getElementById('yearRangeValue');
+  const yearRangeFill = document.getElementById('yearRangeFill');
 
-  document.getElementById('yearMinValue').textContent = yearMinInput.value;
-  document.getElementById('yearMaxValue').textContent = yearMaxInput.value;
-  document.getElementById('magnitudeValue').textContent = magnitudeInput.value;
+  if (yearMinInput && yearMaxInput) {
+    yearMinInput.value = String(Math.min(Number(yearMinInput.value || state.yearMin), state.yearMax));
+    yearMaxInput.value = String(Math.max(Number(yearMaxInput.value || state.yearMax), state.yearMin));
+    state.yearMin = Number(yearMinInput.value);
+    state.yearMax = Number(yearMaxInput.value);
+  }
+
+  if (yearRangeValue) {
+    yearRangeValue.textContent = `${state.yearMin}–${state.yearMax}`;
+  }
+
+  if (yearRangeFill && yearMinInput && yearMaxInput) {
+    const min = Number(yearMinInput.min || state.yearMin);
+    const max = Number(yearMaxInput.max || state.yearMax);
+    const start = ((state.yearMin - min) / (Math.max(max - min, 1) || 1)) * 100;
+    const end = ((state.yearMax - min) / (Math.max(max - min, 1) || 1)) * 100;
+    yearRangeFill.style.left = `${start}%`;
+    yearRangeFill.style.width = `${Math.max(end - start, 0)}%`;
+  }
+
+  const yearMinValue = document.getElementById('yearMinValue');
+  const yearMaxValue = document.getElementById('yearMaxValue');
+  const magnitudeValue = document.getElementById('magnitudeValue');
+
+  if (yearMinValue) yearMinValue.textContent = String(state.yearMin);
+  if (yearMaxValue) yearMaxValue.textContent = String(state.yearMax);
+  if (magnitudeInput && magnitudeValue) magnitudeValue.textContent = magnitudeInput.value;
 }
 
 function updateSpcControls() {
@@ -762,9 +823,9 @@ function normalizeDateString(value) {
 
   const clean = text.replace(/Z$/, '');
 
-  const isoMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  const isoMatch = clean.match(/^((\d{4})-(\d{2})-(\d{2}))(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
   if (isoMatch) {
-    const [, year, month, day] = isoMatch;
+    const [, , year, month, day] = isoMatch;
     const dt = new Date(Number(year), Number(month) - 1, Number(day));
     if (!Number.isNaN(dt.getTime())) {
       return `${year}-${month}-${day}`;
@@ -914,7 +975,7 @@ function buildPopup(row) {
 function calculateStats(filtered) {
   const maxMagnitude = filtered.reduce((max, row) => Math.max(max, Number(row.magnitude) || 0), 0);
   const maxLength = filtered.reduce((max, row) => {
-    const length = Number(row.lengthMiles || row.pathLength || row.length_mi || 0);
+    const length = Number(row.lengthMiles || row.length_mi || row.length_miles || 0);
     return Math.max(max, Number.isFinite(length) ? length : 0);
   }, 0);
 
