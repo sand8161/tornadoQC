@@ -529,6 +529,496 @@ function renderFilteredData(options = {}) {
   setStatus(`Showing ${filtered.length.toLocaleString()} tornado tracks for ${state.yearMin} to ${state.yearMax}.`, false);
 }
 
+function normalizeDateString(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return '';
+  }
+
+  const isoMatch = raw.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (isoMatch) {
+    return raw;
+  }
+
+  const compactMatch = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compactMatch) {
+    const [, year, month, day] = compactMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  const combinedMatch = raw.match(/^(\d{4})(\d{2})(\d{2})[-_ ](\d{2})(\d{2})$/);
+  if (combinedMatch) {
+    const [, year, month, day, hour, minute] = combinedMatch;
+    return `${year}-${month}-${day}`;
+  }
+
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const [, month, day, year] = slashMatch;
+    const fullYear = year.length === 2 ? `19${year}` : year;
+    return `${fullYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  const shortDate = new Date(raw);
+  if (!Number.isNaN(shortDate.getTime())) {
+    return shortDate.toISOString().slice(0, 10);
+  }
+
+  return raw;
+}
+
+function normalizeTimeString(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return '';
+  }
+
+  const combinedMatch = raw.match(/^(\d{4})(\d{2})(\d{2})[-_ ](\d{2})(\d{2})$/);
+  if (combinedMatch) {
+    const [, , , , hour, minute] = combinedMatch;
+    return `${hour}:${minute}`;
+  }
+
+  const compactMatch = raw.match(/^(\d{4})$/);
+  if (compactMatch) {
+    const [, digits] = compactMatch;
+    const hour = digits.slice(0, 2);
+    const minute = digits.slice(2, 4);
+    return `${hour}:${minute}`;
+  }
+
+  const timeMatch = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(?:AM|PM)?$/i);
+  if (timeMatch) {
+    const hour = Number(timeMatch[1]);
+    const minute = String(timeMatch[2]).padStart(2, '0');
+    const normalizedHour = hour % 24;
+    return `${String(normalizedHour).padStart(2, '0')}:${minute}`;
+  }
+
+  const isoTime = raw.match(/T(\d{2}):(\d{2})/);
+  if (isoTime) {
+    return `${isoTime[1]}:${isoTime[2]}`;
+  }
+
+  return raw.slice(0, 5);
+}
+
+function readFloat(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  const cleaned = String(value).trim().replace(/,/g, '').replace(/[^0-9.+\-]/g, '');
+  if (!cleaned || cleaned === '-' || cleaned === '+' || cleaned === '.') {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDatRecords(text) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) {
+    return [];
+  }
+
+  const first = lines[0];
+  const hasHeader = /begin|end|lat|lon|date|time|report/i.test(first);
+  if (hasHeader) {
+    const rows = Papa.parse(text, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => String(header).trim(),
+    }).data || [];
+    return rows
+      .map((row) => normalizeRow(row, 'DAT'))
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function setStatus(message, isError = false) {
+  const status = document.getElementById('status');
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message || '';
+  status.classList.toggle('error', Boolean(isError));
+}
+
+function toCsv(rows) {
+  if (!rows || !rows.length) {
+    return '';
+  }
+
+  const headers = Object.keys(rows[0]);
+  const csvRows = [headers.join(',')];
+  for (const row of rows) {
+    csvRows.push(
+      headers
+        .map((key) => {
+          const value = row[key] ?? '';
+          const text = String(value).replace(/"/g, '""');
+          return `"${text}"`;
+        })
+        .join(',')
+    );
+  }
+  return csvRows.join('\n');
+}
+
+function getSelectedRecord() {
+  if (!state.selectedId) {
+    return null;
+  }
+
+  const candidate = state.filtered.find((row) => row.id === state.selectedId);
+  if (candidate) {
+    return candidate;
+  }
+
+  return state.rows.find((row) => row.id === state.selectedId) || null;
+}
+
+function renderEditor() {
+  const form = document.getElementById('segmentForm');
+  const emptyState = document.getElementById('selectionEmpty');
+  const selected = getSelectedRecord();
+
+  if (!form || !emptyState) {
+    return;
+  }
+
+  if (!selected) {
+    form.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    return;
+  }
+
+  form.classList.remove('hidden');
+  emptyState.classList.add('hidden');
+
+  const selectionLabel = document.getElementById('selectionLabel');
+  if (selectionLabel) {
+    selectionLabel.textContent = `${selected.reportId || selected.id || 'Report'} • M${selected.magnitude ?? 'N/A'}`;
+  }
+
+  const fields = [
+    ['reportId', selected.reportId || selected.id || ''],
+    ['beginDate', selected.beginDate || ''],
+    ['beginTime', selected.beginTime || ''],
+    ['endDate', selected.endDate || ''],
+    ['endTime', selected.endTime || ''],
+    ['beginLat', selected.beginLatitude ?? ''],
+    ['beginLon', selected.beginLongitude ?? ''],
+    ['endLat', selected.endLatitude ?? ''],
+    ['endLon', selected.endLongitude ?? ''],
+    ['qcNotes', selected.qcNotes || ''],
+  ];
+
+  for (const [id, value] of fields) {
+    const input = document.getElementById(id);
+    if (input) {
+      input.value = value ?? '';
+    }
+  }
+}
+
+function calculateStats(filtered) {
+  const count = filtered.length;
+  const maxMagnitude = filtered.reduce((max, row) => Math.max(max, Number(row.magnitude) || 0), 0);
+  const maxLength = filtered.reduce((max, row) => {
+    const start = [row.beginLatitude, row.beginLongitude];
+    const end = [row.endLatitude, row.endLongitude];
+    if (!start.every(Number.isFinite) || !end.every(Number.isFinite)) {
+      return max;
+    }
+    const distanceMiles = Math.hypot(
+      (end[0] - start[0]) * 69,
+      (end[1] - start[1]) * 54.6
+    );
+    return Math.max(max, distanceMiles);
+  }, 0);
+
+  return { count, maxMagnitude, maxLength };
+}
+
+function magnitudeColor(value) {
+  const magnitude = Number(value);
+  if (!Number.isFinite(magnitude)) {
+    return '#94a3b8';
+  }
+
+  const palette = {
+    0: '#a7f3d0',
+    1: '#60a5fa',
+    2: '#facc15',
+    3: '#f59e0b',
+    4: '#ef4444',
+    5: '#7c3aed',
+  };
+
+  return palette[Math.min(5, Math.max(0, Math.round(magnitude)))] || '#94a3b8';
+}
+
+function buildPopup(row) {
+  const title = row.reportId || row.id || 'Track';
+  const magnitude = row.magnitude ?? 'N/A';
+  const source = row.source || 'Report';
+
+  return `
+    <div class="popup-title">${title}</div>
+    <div class="popup-grid">
+      <span>Source</span><strong>${source}</strong>
+      <span>Magnitude</span><strong>${magnitude}</strong>
+      <span>Begin</span><strong>${row.beginDate || 'N/A'} ${row.beginTime || ''}</strong>
+      <span>End</span><strong>${row.endDate || 'N/A'} ${row.endTime || ''}</strong>
+      <span>Start</span><strong>${row.beginLatitude ?? 'N/A'}, ${row.beginLongitude ?? 'N/A'}</strong>
+      <span>End pt</span><strong>${row.endLatitude ?? 'N/A'}, ${row.endLongitude ?? 'N/A'}</strong>
+    </div>
+  `;
+}
+
+function refreshYearBounds() {
+  const allYears = [...state.rows, ...state.spcRows]
+    .map((row) => Number(row.year || getYearFromDate(row.beginDate) || getYearFromDate(row.endDate)))
+    .filter(Number.isFinite);
+
+  if (!allYears.length) {
+    state.yearMin = 1950;
+    state.yearMax = 2025;
+  } else {
+    state.yearMin = Math.min(...allYears);
+    state.yearMax = Math.max(...allYears);
+  }
+
+  const yearMinInput = document.getElementById('yearMin');
+  const yearMaxInput = document.getElementById('yearMax');
+  if (yearMinInput && yearMaxInput) {
+    yearMinInput.min = String(state.yearMin);
+    yearMinInput.max = String(state.yearMax);
+    yearMaxInput.min = String(state.yearMin);
+    yearMaxInput.max = String(state.yearMax);
+    yearMinInput.value = String(state.yearMin);
+    yearMaxInput.value = String(state.yearMax);
+  }
+
+  updateFilterReadouts();
+}
+
+function getYearFromDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = normalizeDateString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^(\d{4})-/);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizeRow(row, source = 'CSV') {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+
+  const beginDate = normalizeDateString(
+    row.beginDate ?? row.BEGIN_DATE ?? row['BEGIN DATE'] ?? row.BEGINDATE ?? row.date ?? row.DATE ?? row.eventDate ?? row['EVENT_DATE']
+  );
+  const endDate = normalizeDateString(
+    row.endDate ?? row.END_DATE ?? row['END DATE'] ?? row.ENDDATE ?? row.end_date ?? row['END_DATE'] ?? row.endDateRaw
+  );
+  const beginTime = normalizeTimeString(
+    row.beginTime ?? row.BEGIN_TIME ?? row['BEGIN TIME'] ?? row.BEGINTIME ?? row.time ?? row.TIME
+  );
+  const endTime = normalizeTimeString(
+    row.endTime ?? row.END_TIME ?? row['END TIME'] ?? row.ENDTIME ?? row.end_time ?? row['END_TIME']
+  );
+
+  const beginLatitude = readFloat(
+    row.beginLatitude ?? row.BEGIN_LAT ?? row['BEGIN LAT'] ?? row.begin_lat ?? row.lat ?? row['LAT'] ?? row.startLat
+  );
+  const beginLongitude = readFloat(
+    row.beginLongitude ?? row.BEGIN_LON ?? row['BEGIN LON'] ?? row.begin_lon ?? row.lon ?? row['LON'] ?? row.startLon
+  );
+  const endLatitude = readFloat(
+    row.endLatitude ?? row.END_LAT ?? row['END LAT'] ?? row.end_lat ?? row.endLat ?? row['ENDLAT']
+  );
+  const endLongitude = readFloat(
+    row.endLongitude ?? row.END_LON ?? row['END LON'] ?? row.end_lon ?? row.endLon ?? row['ENDLON']
+  );
+
+  const magnitude = readFloat(
+    row.magnitude ?? row.MAGNITUDE ?? row['MAGNITUDE'] ?? row.f_scale ?? row['F SCALE'] ?? row['F_SCALE'] ?? row.f ?? row.F ?? row.ef_scale ?? row.EF_SCALE
+  );
+
+  if (beginLatitude === null || beginLongitude === null || endLatitude === null || endLongitude === null) {
+    if ((beginLatitude === null && beginLongitude === null && endLatitude === null && endLongitude === null) || (Math.abs(beginLatitude ?? 0) < 1e-6 && Math.abs(beginLongitude ?? 0) < 1e-6 && Math.abs(endLatitude ?? 0) < 1e-6 && Math.abs(endLongitude ?? 0) < 1e-6)) {
+      return null;
+    }
+  }
+
+  if (beginLatitude !== null && Math.abs(beginLatitude) < 1e-6) {
+    return null;
+  }
+  if (beginLongitude !== null && Math.abs(beginLongitude) < 1e-6) {
+    return null;
+  }
+  if (beginLatitude !== null && beginLatitude === 0) {
+    return null;
+  }
+  if (beginLongitude !== null && beginLongitude === 0) {
+    return null;
+  }
+  if (beginLatitude !== null && beginLatitude < -99900) {
+    return null;
+  }
+  if (beginLongitude !== null && beginLongitude < -99900) {
+    return null;
+  }
+
+  const validLat = (() => {
+    if (beginLatitude === null || beginLatitude === undefined) return false;
+    if (Math.abs(beginLatitude) > 90) return false;
+    if (Math.abs(beginLatitude) < 1e-6) return false;
+    return true;
+  })();
+
+  const validLon = (() => {
+    if (beginLongitude === null || beginLongitude === undefined) return false;
+    if (Math.abs(beginLongitude) > 180) return false;
+    if (Math.abs(beginLongitude) < 1e-6) return false;
+    return true;
+  })();
+
+  if (!validLat || !validLon) {
+    return null;
+  }
+
+  const normalized = {
+    id: `${source}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    source,
+    reportId: row.reportId ?? row.REPORT_ID ?? row['REPORT ID'] ?? row['REPORTID'] ?? row.id ?? row.ID ?? '',
+    beginDate: beginDate || endDate || '',
+    beginTime: beginTime || '',
+    endDate: endDate || beginDate || '',
+    endTime: endTime || beginTime || '',
+    beginLatitude: beginLatitude ?? null,
+    beginLongitude: beginLongitude ?? null,
+    endLatitude: endLatitude ?? beginLatitude ?? null,
+    endLongitude: endLongitude ?? beginLongitude ?? null,
+    magnitude: magnitude ?? 0,
+    year: Number(row.year ?? row.YEAR ?? getYearFromDate(beginDate || endDate) ?? 0),
+    qcNotes: row.qcNotes ?? row['QC NOTES'] ?? '',
+    f2: row.f2 ?? row['F2'] ?? row.f_2 ?? row['F_2'] ?? row.multiCounty ?? row.multi_county ?? null,
+    county: row.county ?? row.COUNTY ?? row.counties ?? row.COUNTIES ?? '',
+    stateName: row.state ?? row.STATE ?? '',
+  };
+
+  if (!normalized.reportId) {
+    normalized.reportId = `${normalized.beginDate || 'unknown'}-${normalized.beginLatitude ?? 'lat'}-${normalized.beginLongitude ?? 'lon'}`;
+  }
+
+  if (normalized.beginDate) {
+    normalized.year = Number(getYearFromDate(normalized.beginDate) || normalized.year || 0);
+  }
+
+  return normalized;
+}
+
+function fetchNoaaDatForTrack(record) {
+  if (!record) {
+    return [];
+  }
+
+  const dateValue = record.beginDate || record.endDate;
+  if (!dateValue) {
+    return [];
+  }
+
+  const rawDate = normalizeDateString(dateValue);
+  if (!rawDate) {
+    return [];
+  }
+
+  const startDate = new Date(`${rawDate}T00:00:00Z`);
+  const endDate = new Date(`${rawDate}T23:59:59Z`);
+  const startIso = startDate.toISOString().slice(0, 19).replace('T', ' ');
+  const endIso = endDate.toISOString().slice(0, 19).replace('T', ' ');
+
+  const where = `stormdate >= timestamp '${startIso}' AND stormdate <= timestamp '${endIso}'`;
+  return queryNoaaDatService(where);
+}
+
+function queryNoaaDatService(whereClause) {
+  const url = new URL('https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/0/query');
+  url.searchParams.set('f', 'json');
+  url.searchParams.set('where', whereClause || '1=1');
+  url.searchParams.set('outFields', '*');
+  url.searchParams.set('returnGeometry', 'true');
+  url.searchParams.set('resultOffset', '0');
+  url.searchParams.set('resultRecordCount', '200');
+
+  return fetch(url.toString(), { cache: 'no-store' })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`NOAA DAT query failed: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((payload) => {
+      const features = Array.isArray(payload?.features) ? payload.features : [];
+      return features;
+    })
+    .catch((error) => {
+      console.warn('NOAA DAT lookup failed:', error);
+      return [];
+    });
+}
+
+function normalizeArcgisDatFeature(feature) {
+  if (!feature || !feature.attributes) {
+    return null;
+  }
+
+  const attributes = feature.attributes;
+  const geometry = feature.geometry || {};
+  const lat = Number(attributes.lat ?? attributes.LAT ?? attributes.latitude ?? geometry.y ?? null);
+  const lon = Number(attributes.lon ?? attributes.LON ?? attributes.longitude ?? geometry.x ?? null);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    eventId: attributes.event_id ?? attributes.EVENT_ID ?? attributes.eventid ?? null,
+    efScale: attributes.efscale ?? attributes.EFSCALE ?? attributes.ef_scale ?? null,
+    office: attributes.office ?? attributes.OFFICE ?? null,
+    damageText: attributes.damage_txt ?? attributes.DAMAGE_TXT ?? null,
+    stormDate: attributes.stormdate ?? attributes.STORMDATE ?? null,
+    lat,
+    lon,
+  };
+}
+
 function isMultiCountyRow(row) {
   if (!row) {
     return false;
@@ -555,7 +1045,7 @@ function isMultiCountyRow(row) {
   }
 
   const countyText = String(row.county || row.counties || row.state || '').trim();
-  return /\band\b|\b&\b|\,/i.test(countyText) && countyText.length > 3;
+  return /\band\b|\b&\b|\,/.test(countyText) && countyText.length > 3;
 }
 
 async function handleTrackSelection(record, preserveMapView = true) {
@@ -602,38 +1092,40 @@ function renderDatPointsOnMap(features) {
     return;
   }
 
-  const markers = features.map((feature) => {
-    const attributes = feature?.attributes || {};
-    const lat = Number(attributes.lat ?? attributes.LAT ?? attributes.latitude ?? attributes.y);
-    const lon = Number(attributes.lon ?? attributes.LON ?? attributes.longitude ?? attributes.x);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      return null;
-    }
+  const markers = features
+    .map((feature) => {
+      const attributes = feature?.attributes || {};
+      const lat = Number(attributes.lat ?? attributes.LAT ?? attributes.latitude ?? attributes.y ?? feature?.geometry?.y);
+      const lon = Number(attributes.lon ?? attributes.LON ?? attributes.longitude ?? attributes.x ?? feature?.geometry?.x);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
 
-    const efScale = String(attributes.efscale ?? attributes.EFSCALE ?? attributes.ef_scale ?? 'N/A');
-    const color = datColorByEf(efScale);
+      const efScale = String(attributes.efscale ?? attributes.EFSCALE ?? attributes.ef_scale ?? 'N/A');
+      const color = datColorByEf(efScale);
 
-    const marker = L.circleMarker([lat, lon], {
-      radius: 6,
-      color: '#ffffff',
-      weight: 1,
-      fillColor: color,
-      fillOpacity: 1,
-    });
+      const marker = L.circleMarker([lat, lon], {
+        radius: 6,
+        color: '#ffffff',
+        weight: 1,
+        fillColor: color,
+        fillOpacity: 1,
+      });
 
-    const popupHtml = `
-      <div class="popup-title">NOAA DAT</div>
-      <div class="popup-grid">
-        <span>Event</span><strong>${attributes.event_id || attributes.EVENT_ID || 'N/A'}</strong>
-        <span>EF</span><strong>${efScale}</strong>
-        <span>Office</span><strong>${attributes.office || attributes.OFFICE || 'N/A'}</strong>
-        <span>Damage</span><strong>${attributes.damage_txt || attributes.DAMAGE_TXT || 'N/A'}</strong>
-        <span>Lat/Lon</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
-      </div>
-    `;
-    marker.bindPopup(popupHtml);
-    return marker;
-  }).filter(Boolean);
+      const popupHtml = `
+        <div class="popup-title">NOAA DAT</div>
+        <div class="popup-grid">
+          <span>Event</span><strong>${attributes.event_id || attributes.EVENT_ID || 'N/A'}</strong>
+          <span>EF</span><strong>${efScale}</strong>
+          <span>Office</span><strong>${attributes.office || attributes.OFFICE || 'N/A'}</strong>
+          <span>Damage</span><strong>${attributes.damage_txt || attributes.DAMAGE_TXT || 'N/A'}</strong>
+          <span>Lat/Lon</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
+        </div>
+      `;
+      marker.bindPopup(popupHtml);
+      return marker;
+    })
+    .filter(Boolean);
 
   markers.forEach((marker) => marker.addTo(state.datLayerGroup));
 }
