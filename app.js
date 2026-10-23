@@ -324,387 +324,508 @@ function updateSpcControls() {
   }
 }
 
-async function loadBundledReportParts() {
-  const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
-  const loaded = [];
+function setStatus(message, isError = false) {
+  const statusEl = document.getElementById('status');
+  if (!statusEl) {
+    return;
+  }
 
-  for (const fileName of fileNames) {
+  statusEl.textContent = message || '';
+  statusEl.classList.toggle('error', Boolean(isError));
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== 'null' && trimmed !== 'NaN') {
+        return value;
+      }
+      continue;
+    }
+
+    if (value !== '' && value !== null && value !== undefined) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function readFloat(value, fallback = null) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  const text = String(value).trim().replace(/,/g, '');
+  if (!text || text === 'null' || text === 'NaN') {
+    return fallback;
+  }
+
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeDateString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  if (!text || text === 'null' || text === 'NaN') {
+    return null;
+  }
+
+  const clean = text.replace(/Z$/, '');
+
+  const isoMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const compactMatch = clean.match(/^(\d{4})(\d{2})(\d{2})(?:-(\d{4}))?$/);
+  if (compactMatch) {
+    const [, year, month, day] = compactMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const slashMatch = clean.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  if (slashMatch) {
+    const [, year, month, day] = slashMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  const spaceMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (spaceMatch) {
+    const [, month, day, year] = spaceMatch;
+    const dt = new Date(Number(year), Number(month) - 1, Number(day));
+    if (!Number.isNaN(dt.getTime())) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+function normalizeTimeString(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  if (!text || text === 'null' || text === 'NaN') {
+    return null;
+  }
+
+  const compact = text.match(/^(\d{8})-(\d{4})$/);
+  if (compact) {
+    const [, , time] = compact;
+    const hour = time.slice(0, 2);
+    const minute = time.slice(2, 4);
+    return `${hour}:${minute}`;
+  }
+
+  const hms = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hms) {
+    const [, hour, minute] = hms;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
+  const hourMinute = text.match(/^(\d{4})$/);
+  if (hourMinute) {
+    const [, raw] = hourMinute;
+    return `${raw.slice(0, 2)}:${raw.slice(2, 4)}`;
+  }
+
+  return null;
+}
+
+function getYearFromDate(dateValue) {
+  const normalized = normalizeDateString(dateValue);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(/^(\d{4})-/);
+  return match ? Number(match[1]) : null;
+}
+
+function refreshYearBounds() {
+  const rows = [...state.rows, ...state.spcRows];
+  if (!rows.length) {
+    state.yearMin = 1950;
+    state.yearMax = 2025;
+    return;
+  }
+
+  const years = rows
+    .map((row) => Number(row.year || getYearFromDate(row.beginDate) || getYearFromDate(row.endDate) || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+
+  if (years.length) {
+    state.yearMin = years[0];
+    state.yearMax = years[years.length - 1];
+  }
+
+  const yearMinInput = document.getElementById('yearMin');
+  const yearMaxInput = document.getElementById('yearMax');
+  if (yearMinInput) {
+    yearMinInput.min = String(state.yearMin);
+    yearMinInput.max = String(state.yearMax);
+    yearMinInput.value = String(Math.min(Number(yearMinInput.value || state.yearMin), state.yearMax));
+  }
+  if (yearMaxInput) {
+    yearMaxInput.min = String(state.yearMin);
+    yearMaxInput.max = String(state.yearMax);
+    yearMaxInput.value = String(Math.max(Number(yearMaxInput.value || state.yearMax), state.yearMin));
+  }
+
+  state.yearMin = Number(yearMinInput?.value || state.yearMin);
+  state.yearMax = Number(yearMaxInput?.value || state.yearMax);
+  updateFilterReadouts();
+}
+
+function magnitudeColor(value) {
+  const magnitude = Number(value);
+  if (!Number.isFinite(magnitude)) {
+    return '#94a3b8';
+  }
+
+  if (magnitude >= 5) return '#7f1d1d';
+  if (magnitude >= 4) return '#b91c1c';
+  if (magnitude >= 3) return '#f59e0b';
+  if (magnitude >= 2) return '#facc15';
+  if (magnitude >= 1) return '#4ade80';
+  return '#22d3ee';
+}
+
+function buildPopup(row) {
+  const reportId = row.reportId || row.id || 'N/A';
+  const magnitude = row.magnitude ?? row.f2 ?? row.f_2 ?? 'N/A';
+  const county = firstNonEmpty(row.county, row.counties, row.state, 'N/A');
+  const start = firstNonEmpty(row.beginDate, row.endDate, 'N/A');
+
+  return `
+    <div class="popup-title">${reportId}</div>
+    <div class="popup-grid">
+      <span>Magnitude</span><strong>${magnitude}</strong>
+      <span>Date</span><strong>${start}</strong>
+      <span>County</span><strong>${county}</strong>
+      <span>Source</span><strong>${row.source || 'SPC'}</strong>
+    </div>
+  `;
+}
+
+function calculateStats(filtered) {
+  const maxMagnitude = filtered.reduce((max, row) => Math.max(max, Number(row.magnitude) || 0), 0);
+  const maxLength = filtered.reduce((max, row) => {
+    const length = Number(row.lengthMiles || row.pathLength || row.length_mi || 0);
+    return Math.max(max, Number.isFinite(length) ? length : 0);
+  }, 0);
+
+  return {
+    count: filtered.length,
+    maxMagnitude,
+    maxLength,
+  };
+}
+
+function normalizeRow(row, source) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+
+  const beginDate = normalizeDateString(firstNonEmpty(
+    row.beginDate,
+    row.begin_date,
+    row.BEGIN_DATE,
+    row.date,
+    row.DATE,
+    row.eventDate,
+    row.event_date,
+    row.event_date_utc,
+    row.begin_ymd,
+    row.BEGIN_YMD,
+    row['BEGIN DATE'],
+    row['BEGIN DATE (UTC)'],
+    row['Date']
+  ));
+
+  const endDate = normalizeDateString(firstNonEmpty(
+    row.endDate,
+    row.end_date,
+    row.END_DATE,
+    row.end_ymd,
+    row.END_YMD,
+    row['END DATE']
+  ));
+
+  const beginTime = normalizeTimeString(firstNonEmpty(
+    row.beginTime,
+    row.begin_time,
+    row.BEGIN_TIME,
+    row['BEGIN TIME'],
+    row.time,
+    row.TIME,
+    row['Time']
+  ));
+
+  const endTime = normalizeTimeString(firstNonEmpty(
+    row.endTime,
+    row.end_time,
+    row.END_TIME,
+    row['END TIME']
+  ));
+
+  const beginLatitude = readFloat(firstNonEmpty(
+    row.beginLatitude,
+    row.begin_lat,
+    row.BEGIN_LAT,
+    row.BEGINLAT,
+    row.lat,
+    row.latitude,
+    row['Begin Lat']
+  ));
+
+  const beginLongitude = readFloat(firstNonEmpty(
+    row.beginLongitude,
+    row.begin_lon,
+    row.BEGIN_LON,
+    row.BEGINLON,
+    row.lon,
+    row.longitude,
+    row['Begin Lon']
+  ));
+
+  const endLatitude = readFloat(firstNonEmpty(
+    row.endLatitude,
+    row.end_lat,
+    row.END_LAT,
+    row.ENDLAT,
+    row['End Lat']
+  ));
+
+  const endLongitude = readFloat(firstNonEmpty(
+    row.endLongitude,
+    row.end_lon,
+    row.END_LON,
+    row.ENDLON,
+    row['End Lon']
+  ));
+
+  const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
+
+  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude) || invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
+    return null;
+  }
+
+  const magnitudeCandidates = [
+    row.magnitude,
+    row.mag,
+    row.MAG,
+    row.fscale,
+    row.f_scale,
+    row.F_SCALE,
+    row.f2,
+    row.f_2,
+    row.F2,
+    row.efscale,
+    row.ef_scale,
+    row.EFSCALE,
+    row.EF_SCALE,
+    row['F scale'],
+    row['F Scale'],
+    row['Magnitude'],
+  ];
+
+  let magnitude = 0;
+  for (const candidate of magnitudeCandidates) {
+    const parsed = readFloat(candidate, null);
+    if (parsed !== null) {
+      magnitude = parsed;
+      break;
+    }
+  }
+
+  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
+    const match = row.magnitude.trim().match(/(\d+)/);
+    if (match) {
+      magnitude = Number(match[1]);
+    }
+  }
+
+  const id = firstNonEmpty(
+    row.id,
+    row.reportId,
+    row.report_id,
+    row.REPORT_ID,
+    row['Report ID'],
+    row.event_id,
+    row.EVENT_ID,
+    row.objectid,
+    row.OBJECTID,
+    `${beginDate || 'unknown'}-${beginTime || '00:00'}-${beginLatitude || 0}-${beginLongitude || 0}`
+  );
+
+  const normalized = {
+    id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
+    reportId: String(firstNonEmpty(row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
+    source,
+    beginDate: beginDate || endDate || '0000-00-00',
+    beginTime: beginTime || '00:00',
+    endDate: endDate || beginDate || '0000-00-00',
+    endTime: endTime || beginTime || '00:00',
+    beginLatitude,
+    beginLongitude,
+    endLatitude,
+    endLongitude,
+    magnitude,
+    year: Number(firstNonEmpty(row.year, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
+    county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
+    state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
+    lengthMiles: readFloat(firstNonEmpty(row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
+  };
+
+  if (normalized.beginDate === '0000-00-00' || !normalized.beginLatitude || !normalized.beginLongitude) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function parseDatRecords(text) {
+  if (!text || !String(text).trim()) {
+    return [];
+  }
+
+  const rows = [];
+  const lines = String(text).split(/\r?\n/);
+
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    const parts = line.split(/[\t,|]+/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 7) {
+      continue;
+    }
+
+    const record = {
+      reportId: parts[0],
+      beginDate: parts[1],
+      beginTime: parts[2],
+      endDate: parts[3],
+      endTime: parts[4],
+      beginLatitude: Number(parts[5]),
+      beginLongitude: Number(parts[6]),
+      endLatitude: Number(parts[7] || parts[5]),
+      endLongitude: Number(parts[8] || parts[6]),
+      magnitude: Number(parts[9] || 0),
+      source: 'DAT',
+    };
+
+    const normalized = normalizeRow(record, 'DAT');
+    if (normalized) {
+      rows.push(normalized);
+    }
+  }
+
+  return rows;
+}
+
+function getSelectedRecord() {
+  if (!state.selectedId) {
+    return null;
+  }
+
+  return state.filtered.find((row) => row.id === state.selectedId) || state.rows.find((row) => row.id === state.selectedId) || null;
+}
+
+async function fetchNoaaDatForTrack(record) {
+  if (!record) {
+    return [];
+  }
+
+  const candidateDates = new Set();
+  for (const candidate of [record.beginDate, record.endDate, record.date, record.event_date, record.stormdate, record.damage_date]) {
+    const normalized = normalizeDateString(candidate);
+    if (normalized) {
+      candidateDates.add(normalized);
+    }
+  }
+
+  if (!candidateDates.size) {
+    return [];
+  }
+
+  const layerIds = Array.from({ length: 16 }, (_, index) => index);
+  const unique = new Map();
+
+  for (const layerId of layerIds) {
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=json&where=1%3D1&outFields=*&returnGeometry=true&outSR=4326`;
+
     try {
-      const response = await fetch(`./${fileName}`, { cache: 'no-store' });
+      const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) {
         continue;
       }
-      const text = await response.text();
-      const parsed = Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
 
-      const rows = parsed.data
-        .map((row) => normalizeRow(row, 'CSV'))
-        .filter(Boolean);
+      const payload = await response.json();
+      const features = Array.isArray(payload && payload.features) ? payload.features : [];
 
-      if (rows.length) {
-        loaded.push(...rows);
+      for (const feature of features) {
+        if (!feature || !feature.attributes) {
+          continue;
+        }
+
+        const attrs = feature.attributes;
+        const valueSet = [
+          attrs.stormdate,
+          attrs.event_date,
+          attrs.damage_date,
+          attrs.damage_dt,
+          attrs.date,
+          attrs.begin_date,
+          attrs.end_date,
+          attrs.issue_date,
+          attrs.valid,
+          attrs['date'],
+        ];
+
+        const matchesDate = valueSet.some((value) => {
+          const normalized = normalizeDateString(value);
+          return normalized && candidateDates.has(normalized);
+        });
+
+        if (!matchesDate) {
+          continue;
+        }
+
+        const dedupeKey = `${layerId}:${feature.attributes.objectid || feature.attributes.OBJECTID || feature.attributes.event_id || feature.attributes.EVENT_ID || JSON.stringify(feature.geometry)}`;
+        if (!unique.has(dedupeKey)) {
+          unique.set(dedupeKey, feature);
+        }
       }
     } catch (error) {
-      console.warn(`Skipping bundled CSV ${fileName}:`, error);
+      console.warn(`DAT layer ${layerId} query failed:`, error);
     }
   }
 
-  return loaded;
-}
-
-async function fetchCsvWithFallback() {
-  const sources = [SPC_URL, FALLBACK_URL];
-
-  for (const source of sources) {
-    try {
-      const response = await fetch(source, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return await response.text();
-    } catch (error) {
-      console.warn(`CSV fetch failed for ${source}`, error);
-    }
-  }
-
-  throw new Error('Could not load SPC CSV from any source.');
-}
-
-async function loadData() {
-  try {
-    let rows = await loadBundledReportParts();
-
-    if (!rows.length) {
-      const csvText = await fetchCsvWithFallback();
-      const parsed = Papa.parse(csvText, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
-
-      rows = parsed.data
-        .map((row) => normalizeRow(row, 'SPC'))
-        .filter(Boolean);
-    }
-
-    state.rows = rows
-      .sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
-
-    state.spcRows = await loadSpcRows();
-
-    if (!state.rows.length && !state.spcRows.length) {
-      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
-    }
-
-    refreshYearBounds();
-    renderFilteredData({ preserveMapView: true });
-    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
-  } catch (error) {
-    console.error(error);
-    setStatus(
-      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
-      true
-    );
-  }
-}
-
-async function loadSpcRows() {
-  try {
-    const csvText = await fetchCsvWithFallback();
-    const parsed = Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (header) => String(header).trim(),
-    });
-
-    return parsed.data
-      .map((row) => normalizeRow(row, 'SPC'))
-      .filter(Boolean);
-  } catch (error) {
-    console.warn('Unable to load SPC layer:', error);
-    return [];
-  }
-}
-
-function renderFilteredData(options = {}) {
-  const { preserveMapView = false } = options;
-  const primaryRows = state.rows.filter((row) => {
-    const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-    return rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
-  });
-
-  let spcRows = [];
-  if (state.spcLayerVisible) {
-    spcRows = state.spcRows.filter((row) => {
-      const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-      const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
-      const multiCountyPass = !state.spcMultiCountyOnly || isMultiCountyRow(row);
-      return inRange && multiCountyPass;
-    });
-  }
-
-  const filtered = [...primaryRows, ...spcRows];
-  state.filtered = filtered;
-  state.polyLines.clear();
-  state.layerGroup.clearLayers();
-  state.datLayerGroup.clearLayers();
-
-  if (!filtered.length) {
-    document.getElementById('trackCount').textContent = '0';
-    document.getElementById('maxMagnitude').textContent = '0';
-    document.getElementById('maxLength').textContent = '0 mi';
-    setStatus('No tornado tracks match the selected filters.', false);
-    return;
-  }
-
-  let bounds = L.latLngBounds([]);
-
-  filtered.forEach((row) => {
-    const isSpc = row.source === 'SPC';
-    const color = magnitudeColor(row.magnitude);
-    const polyline = L.polyline(
-      [
-        [row.beginLatitude, row.beginLongitude],
-        [row.endLatitude, row.endLongitude],
-      ],
-      {
-        color,
-        weight: row.id === state.selectedId ? 6 : 3,
-        opacity: row.id === state.selectedId ? 1 : 0.8,
-        lineCap: 'round',
-        dashArray: isSpc ? '8 8' : null,
-      }
-    );
-
-    polyline.bindPopup(buildPopup(row));
-    polyline.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    polyline.addTo(state.layerGroup);
-    state.polyLines.set(row.id, polyline);
-
-    const startMarker = L.circleMarker([row.beginLatitude, row.beginLongitude], {
-      radius: 4,
-      color: isSpc ? '#f8fafc' : '#f8fafc',
-      fillColor: color,
-      fillOpacity: 1,
-      weight: 1,
-    });
-    startMarker.bindPopup(buildPopup(row));
-    startMarker.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    startMarker.addTo(state.layerGroup);
-
-    bounds.extend([[row.beginLatitude, row.beginLongitude], [row.endLatitude, row.endLongitude]]);
-  });
-
-  const stats = calculateStats(filtered);
-  document.getElementById('trackCount').textContent = stats.count.toLocaleString();
-  document.getElementById('maxMagnitude').textContent = String(stats.maxMagnitude);
-  document.getElementById('maxLength').textContent = `${stats.maxLength.toFixed(0)} mi`;
-
-  if (bounds.isValid() && !preserveMapView) {
-    state.map.fitBounds(bounds, { padding: [30, 30] });
-  }
-
-  renderEditor();
-  setStatus(`Showing ${filtered.length.toLocaleString()} tornado tracks for ${state.yearMin} to ${state.yearMax}.`, false);
-}
-
-function isMultiCountyRow(row) {
-  if (!row) {
-    return false;
-  }
-
-  const candidateValues = [
-    row.f2,
-    row.f_2,
-    row.multiCounty,
-    row.multi_county,
-    row.multiCounties,
-    row.multi_counties,
-    row.multiSegment,
-    row.multi_segment,
-    row.multiCountyCount,
-    row.countyCount,
-  ];
-
-  for (const value of candidateValues) {
-    const numeric = Number.parseFloat(String(value ?? '').replace(/,/g, '').trim());
-    if (Number.isFinite(numeric) && numeric !== 0) {
-      return true;
-    }
-  }
-
-  const countyText = String(row.county || row.counties || row.state || '').trim();
-  return /\band\b|\b&\b|\,/i.test(countyText) && countyText.length > 3;
-}
-
-async function handleTrackSelection(record, preserveMapView = true) {
-  if (!record) {
-    return;
-  }
-
-  state.selectedId = record.id;
-  renderEditor();
-  renderFilteredData({ preserveMapView: true });
-
-  const matches = await fetchNoaaDatForTrack(record);
-  state.noaaDatMatches = matches || [];
-  renderDatLayer(matches || []);
-
-  const dateLabel = record.beginDate || record.endDate || 'this date';
-  if (matches && matches.length) {
-    setStatus(
-      `Selected ${record.reportId || record.id}. NOAA DAT found ${matches.length} feature(s) on ${dateLabel}.`,
-      false
-    );
-    return;
-  }
-
-  setStatus(
-    `Selected ${record.reportId || record.id}. NOAA DAT search completed for ${dateLabel}.`,
-    false
-  );
-}
-
-function clearDatLayer() {
-  if (state.datLayerGroup) {
-    state.datLayerGroup.clearLayers();
-  }
-  state.noaaDatMatches = [];
-}
-
-function renderDatLayer(features) {
-  clearDatLayer();
-  if (!features || !features.length || !state.datLayerGroup) {
-    return;
-  }
-
-  const layers = features
-    .map((feature) => {
-      if (!feature || !feature.geometry) {
-        return null;
-      }
-
-      const geometry = feature.geometry;
-      const type = geometry.type;
-      const attrs = feature.attributes || {};
-      const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
-
-      if (type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
-        const [lon, lat] = geometry.coordinates;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 6,
-          color: '#ffffff',
-          weight: 1,
-          fillColor: datColorByEf(firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')),
-          fillOpacity: 1,
-        });
-        marker.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-            <span>Point</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
-          </div>
-        `);
-        return marker;
-      }
-
-      if (type === 'MultiPoint' || type === 'LineString' || type === 'MultiLineString') {
-        const latLngs = geometry.coordinates ? geometry.coordinatesToLatLngs ? geometry.coordinatesToLatLngs() : coordinatesToLatLngs(geometry.coordinates) : [];
-        const line = L.polyline(latLngs, {
-          color: datColorByEf(firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')),
-          weight: 3,
-          opacity: 0.9,
-        });
-        line.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
-        return line;
-      }
-
-      if (type === 'Polygon' || type === 'MultiPolygon') {
-        const latLngs = geometry.coordinates ? geometry.coordinatesToLatLngs ? geometry.coordinatesToLatLngs() : polygonCoordinatesToLatLngs(geometry.coordinates) : [];
-        const polygon = L.polygon(latLngs, {
-          color: datColorByEf(firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')),
-          fillColor: datColorByEf(firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')),
-          fillOpacity: 0.3,
-          weight: 2,
-        });
-        polygon.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
-        return polygon;
-      }
-
-      return null;
-    })
-    .filter(Boolean);
-
-  layers.forEach((layer) => layer.addTo(state.datLayerGroup));
-}
-
-function datColorByEf(value) {
-  const text = String(value || '').trim().toUpperCase();
-  const palette = {
-    EF5: '#9d174d',
-    EF4: '#dc2626',
-    EF3: '#f59e0b',
-    'EF3+': '#f59e0b',
-    EF2: '#facc15',
-    EF1: '#4ade80',
-    EF0: '#22d3ee',
-    EFU: '#94a3b8',
-    TSTM: '#a78bfa',
-    'TSTM/WIND': '#a78bfa',
-    WIND: '#a78bfa',
-    TROPICAL: '#f97316',
-    'N/A': '#cbd5e1',
-    UNKNOWN: '#cbd5e1',
-    '<NULL>': '#cbd5e1',
-  };
-  return palette[text] || '#60a5fa';
-}
-
-function coordinatesToLatLngs(coordinates) {
-  if (!Array.isArray(coordinates)) {
-    return [];
-  }
-
-  return coordinates
-    .map((segment) => Array.isArray(segment) && segment.length >= 2 ? [segment[1], segment[0]] : null)
-    .filter(Boolean);
-}
-
-function polygonCoordinatesToLatLngs(coordinates) {
-  if (!Array.isArray(coordinates)) {
-    return [];
-  }
-
-  return coordinates.map((ring) => {
-    if (!Array.isArray(ring)) {
-      return [];
-    }
-    return ring.map((point) => Array.isArray(point) && point.length >= 2 ? [point[1], point[0]] : null).filter(Boolean);
-  }).filter((ring) => ring.length);
+  return Array.from(unique.values());
 }
