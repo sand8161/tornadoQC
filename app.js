@@ -64,7 +64,7 @@ function bindControls() {
     }
     state.yearMin = parsed;
     updateFilterReadouts();
-    renderFilteredData();
+    renderFilteredData({ preserveMapView: true });
   });
 
   yearMaxInput.addEventListener('input', () => {
@@ -74,7 +74,7 @@ function bindControls() {
     }
     state.yearMax = parsed;
     updateFilterReadouts();
-    renderFilteredData();
+    renderFilteredData({ preserveMapView: true });
   });
 
   magnitudeInput.addEventListener('input', () => {
