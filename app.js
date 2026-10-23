@@ -842,6 +842,18 @@ function normalizeDateString(value) {
     return null;
   }
 
+  // --- ADD THIS BLOCK ---
+  // Handle ArcGIS epoch timestamps (milliseconds since 1970)
+  const numValue = Number(value);
+  if (!isNaN(numValue) && numValue > 10000000000) {
+    const dt = new Date(numValue);
+    if (!isNaN(dt.getTime())) {
+      // Returns format like "2024-05-05"
+      return dt.toISOString().split('T')[0];
+    }
+  }
+  // ----------------------
+
   const text = String(value).trim();
   if (!text || text === 'null' || text === 'NaN') {
     return null;
