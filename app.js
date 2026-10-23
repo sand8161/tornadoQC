@@ -57,235 +57,213 @@ function bindControls() {
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
-  if (yearMinInput && yearMaxInput) {
-    yearMinInput.addEventListener('input', () => {
-      const parsed = Number(yearMinInput.value);
-      if (parsed > Number(yearMaxInput.value)) {
-        yearMaxInput.value = parsed;
-      }
-      state.yearMin = parsed;
-      updateFilterReadouts();
-      renderFilteredData({ preserveMapView: true });
-    });
+  yearMinInput.addEventListener('input', () => {
+    const parsed = Number(yearMinInput.value);
+    if (parsed > Number(yearMaxInput.value)) {
+      yearMaxInput.value = parsed;
+    }
+    state.yearMin = parsed;
+    updateFilterReadouts();
+    renderFilteredData({ preserveMapView: true });
+  });
 
-    yearMaxInput.addEventListener('input', () => {
-      const parsed = Number(yearMaxInput.value);
-      if (parsed < Number(yearMinInput.value)) {
-        yearMinInput.value = parsed;
-      }
-      state.yearMax = parsed;
-      updateFilterReadouts();
-      renderFilteredData({ preserveMapView: true });
-    });
-  }
+  yearMaxInput.addEventListener('input', () => {
+    const parsed = Number(yearMaxInput.value);
+    if (parsed < Number(yearMinInput.value)) {
+      yearMinInput.value = parsed;
+    }
+    state.yearMax = parsed;
+    updateFilterReadouts();
+    renderFilteredData({ preserveMapView: true });
+  });
 
-  if (magnitudeInput) {
-    magnitudeInput.addEventListener('input', () => {
-      state.minMagnitude = Number(magnitudeInput.value);
-      updateFilterReadouts();
-      renderFilteredData();
-    });
-  }
+  magnitudeInput.addEventListener('input', () => {
+    state.minMagnitude = Number(magnitudeInput.value);
+    updateFilterReadouts();
+    renderFilteredData();
+  });
 
-  if (spcToggleButton) {
-    spcToggleButton.addEventListener('click', () => {
-      state.spcLayerVisible = !state.spcLayerVisible;
-      updateSpcControls();
-      renderFilteredData({ preserveMapView: true });
-    });
-  }
+  spcToggleButton.addEventListener('click', () => {
+    state.spcLayerVisible = !state.spcLayerVisible;
+    updateSpcControls();
+    renderFilteredData({ preserveMapView: true });
+  });
 
-  if (spcMultiCountyButton) {
-    spcMultiCountyButton.addEventListener('click', () => {
-      state.spcMultiCountyOnly = !state.spcMultiCountyOnly;
-      updateSpcControls();
-      renderFilteredData({ preserveMapView: true });
-    });
-  }
+  spcMultiCountyButton.addEventListener('click', () => {
+    state.spcMultiCountyOnly = !state.spcMultiCountyOnly;
+    updateSpcControls();
+    renderFilteredData({ preserveMapView: true });
+  });
 
-  if (resetButton) {
-    resetButton.addEventListener('click', () => {
-      if (state.allBounds && state.allBounds.isValid()) {
-        state.map.fitBounds(state.allBounds, { padding: [24, 24] });
-      }
-    });
-  }
+  resetButton.addEventListener('click', () => {
+    if (state.allBounds && state.allBounds.isValid()) {
+      state.map.fitBounds(state.allBounds, { padding: [24, 24] });
+    }
+  });
 
-  if (csvInput) {
-    csvInput.addEventListener('change', async (event) => {
-      const file = event.target.files && event.target.files[0];
-      if (!file) {
-        return;
-      }
+  csvInput.addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
 
-      try {
-        const text = await file.text();
-        const parsed = Papa.parse(text, {
-          header: true,
-          skipEmptyLines: true,
-          transformHeader: (header) => String(header).trim(),
-        });
-        const rows = parsed.data
-          .map((row) => normalizeRow(row, 'CSV'))
-          .filter(Boolean);
-
-        if (!rows.length) {
-          throw new Error('No valid tornado rows found in the uploaded CSV.');
-        }
-
-        state.rows = rows;
-        state.selectedId = null;
-        setStatus(`Loaded ${rows.length.toLocaleString()} rows from ${file.name}.`);
-        refreshYearBounds();
-        renderFilteredData();
-        renderEditor();
-      } catch (error) {
-        console.error(error);
-        setStatus(error.message || 'Unable to parse uploaded CSV.', true);
-      } finally {
-        event.target.value = '';
-      }
-    });
-  }
-
-  if (datInput) {
-    datInput.addEventListener('change', async (event) => {
-      const file = event.target.files && event.target.files[0];
-      if (!file) {
-        return;
-      }
-
-      try {
-        const text = await file.text();
-        const rows = parseDatRecords(text);
-        if (!rows.length) {
-          throw new Error('No usable records found in the DAT file.');
-        }
-
-        state.rows.push(...rows);
-        state.selectedId = null;
-        setStatus(`Imported ${rows.length.toLocaleString()} records from ${file.name}.`);
-        refreshYearBounds();
-        renderFilteredData();
-        renderEditor();
-      } catch (error) {
-        console.error(error);
-        setStatus(error.message || 'Unable to parse DAT file.', true);
-      } finally {
-        event.target.value = '';
-      }
-    });
-  }
-
-  if (exportButton) {
-    exportButton.addEventListener('click', () => {
-      if (!state.corrections.size) {
-        setStatus('No corrections to export yet.', true);
-        return;
-      }
-
-      const rows = Array.from(state.corrections.values()).map((entry) => ({
-        source: entry.source,
-        reportId: entry.reportId,
-        beginDate: entry.beginDate,
-        beginTime: entry.beginTime,
-        endDate: entry.endDate,
-        endTime: entry.endTime,
-        beginLatitude: entry.beginLatitude,
-        beginLongitude: entry.beginLongitude,
-        endLatitude: entry.endLatitude,
-        endLongitude: entry.endLongitude,
-        magnitude: entry.magnitude,
-        qcNotes: entry.qcNotes,
-        originalReportId: entry.originalReportId,
-      }));
-
-      const csv = toCsv(rows);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'tornado_qc_corrections.csv';
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setStatus(`Exported ${rows.length} correction row(s).`);
-    });
-  }
-
-  if (themeButton) {
-    themeButton.addEventListener('click', () => {
-      const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
-      applyTheme(nextTheme);
-    });
-  }
-
-  if (saveButton) {
-    saveButton.addEventListener('click', () => {
-      const record = getSelectedRecord();
-      if (!record) {
-        setStatus('Select a tornado segment before saving edits.', true);
-        return;
-      }
-
-      const form = document.getElementById('segmentForm');
-      const payload = {
-        reportId: document.getElementById('reportId').value.trim() || record.reportId,
-        beginDate: document.getElementById('beginDate').value,
-        beginTime: document.getElementById('beginTime').value,
-        endDate: document.getElementById('endDate').value,
-        endTime: document.getElementById('endTime').value,
-        beginLatitude: Number(document.getElementById('beginLat').value),
-        beginLongitude: Number(document.getElementById('beginLon').value),
-        endLatitude: Number(document.getElementById('endLat').value),
-        endLongitude: Number(document.getElementById('endLon').value),
-        qcNotes: document.getElementById('qcNotes').value.trim(),
-      };
-
-      const original = { ...record };
-      const updated = {
-        ...record,
-        reportId: payload.reportId,
-        beginDate: payload.beginDate,
-        beginTime: payload.beginTime,
-        endDate: payload.endDate,
-        endTime: payload.endTime,
-        beginLatitude: payload.beginLatitude,
-        beginLongitude: payload.beginLongitude,
-        endLatitude: payload.endLatitude,
-        endLongitude: payload.endLongitude,
-        qcNotes: payload.qcNotes,
-      };
-
-      Object.assign(record, updated);
-      state.corrections.set(record.id || record.reportId, {
-        source: record.source,
-        reportId: record.reportId,
-        originalReportId: original.reportId,
-        beginDate: payload.beginDate,
-        beginTime: payload.beginTime,
-        endDate: payload.endDate,
-        endTime: payload.endTime,
-        beginLatitude: payload.beginLatitude,
-        beginLongitude: payload.beginLongitude,
-        endLatitude: payload.endLatitude,
-        endLongitude: payload.endLongitude,
-        magnitude: record.magnitude,
-        qcNotes: payload.qcNotes,
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
       });
+      const rows = parsed.data
+        .map((row) => normalizeRow(row, 'CSV'))
+        .filter(Boolean);
 
-      renderFilteredData({ preserveMapView: true });
-      renderEditor();
-      setStatus(`Saved updates for ${record.reportId || record.id}.`);
-    });
-  }
+      if (!rows.length) {
+        throw new Error('No valid tornado rows found in the uploaded CSV.');
+      }
 
-  if (clearButton) {
-    clearButton.addEventListener('click', () => {
+      state.rows = rows;
       state.selectedId = null;
+      setStatus(`Loaded ${rows.length.toLocaleString()} rows from ${file.name}.`);
+      refreshYearBounds();
+      renderFilteredData();
       renderEditor();
-      setStatus('Selection cleared.');
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || 'Unable to parse uploaded CSV.', true);
+    } finally {
+      event.target.value = '';
+    }
+  });
+
+  datInput.addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const rows = parseDatRecords(text);
+      if (!rows.length) {
+        throw new Error('No usable records found in the DAT file.');
+      }
+
+      state.rows.push(...rows);
+      state.selectedId = null;
+      setStatus(`Imported ${rows.length.toLocaleString()} records from ${file.name}.`);
+      refreshYearBounds();
+      renderFilteredData();
+      renderEditor();
+    } catch (error) {
+      console.error(error);
+      setStatus(error.message || 'Unable to parse DAT file.', true);
+    } finally {
+      event.target.value = '';
+    }
+  });
+
+  exportButton.addEventListener('click', () => {
+    if (!state.corrections.size) {
+      setStatus('No corrections to export yet.', true);
+      return;
+    }
+
+    const rows = Array.from(state.corrections.values()).map((entry) => ({
+      source: entry.source,
+      reportId: entry.reportId,
+      beginDate: entry.beginDate,
+      beginTime: entry.beginTime,
+      endDate: entry.endDate,
+      endTime: entry.endTime,
+      beginLatitude: entry.beginLatitude,
+      beginLongitude: entry.beginLongitude,
+      endLatitude: entry.endLatitude,
+      endLongitude: entry.endLongitude,
+      magnitude: entry.magnitude,
+      qcNotes: entry.qcNotes,
+      originalReportId: entry.originalReportId,
+    }));
+
+    const csv = toCsv(rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'tornado_qc_corrections.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Exported ${rows.length} correction row(s).`);
+  });
+
+  themeButton.addEventListener('click', () => {
+    const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
+    applyTheme(nextTheme);
+  });
+
+  saveButton.addEventListener('click', () => {
+    const record = getSelectedRecord();
+    if (!record) {
+      setStatus('Select a tornado segment before saving edits.', true);
+      return;
+    }
+
+    const form = document.getElementById('segmentForm');
+    const payload = {
+      reportId: document.getElementById('reportId').value.trim() || record.reportId,
+      beginDate: document.getElementById('beginDate').value,
+      beginTime: document.getElementById('beginTime').value,
+      endDate: document.getElementById('endDate').value,
+      endTime: document.getElementById('endTime').value,
+      beginLatitude: Number(document.getElementById('beginLat').value),
+      beginLongitude: Number(document.getElementById('beginLon').value),
+      endLatitude: Number(document.getElementById('endLat').value),
+      endLongitude: Number(document.getElementById('endLon').value),
+      qcNotes: document.getElementById('qcNotes').value.trim(),
+    };
+
+    const original = { ...record };
+    const updated = {
+      ...record,
+      reportId: payload.reportId,
+      beginDate: payload.beginDate,
+      beginTime: payload.beginTime,
+      endDate: payload.endDate,
+      endTime: payload.endTime,
+      beginLatitude: payload.beginLatitude,
+      beginLongitude: payload.beginLongitude,
+      endLatitude: payload.endLatitude,
+      endLongitude: payload.endLongitude,
+      qcNotes: payload.qcNotes,
+    };
+
+    Object.assign(record, updated);
+    state.corrections.set(record.id || record.reportId, {
+      source: record.source,
+      reportId: record.reportId,
+      originalReportId: original.reportId,
+      beginDate: payload.beginDate,
+      beginTime: payload.beginTime,
+      endDate: payload.endDate,
+      endTime: payload.endTime,
+      beginLatitude: payload.beginLatitude,
+      beginLongitude: payload.beginLongitude,
+      endLatitude: payload.endLatitude,
+      endLongitude: payload.endLongitude,
+      magnitude: record.magnitude,
+      qcNotes: payload.qcNotes,
     });
-  }
+
+    renderFilteredData({ preserveMapView: true });
+    renderEditor();
+    setStatus(`Saved updates for ${record.reportId || record.id}.`);
+  });
+
+  clearButton.addEventListener('click', () => {
+    state.selectedId = null;
+    renderEditor();
+    setStatus('Selection cleared.');
+  });
 }
 
 function applyTheme(mode) {
