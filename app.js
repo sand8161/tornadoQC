@@ -654,62 +654,66 @@ function renderDatLayer(features) {
       const attrs = feature.properties || feature.attributes || {};
       const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
       const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
+      const popupHtml = `
+        <div class="popup-title">NOAA DAT</div>
+        <div class="popup-grid">
+          <span>Event</span><strong>${label}</strong>
+          <span>EF/Type</span><strong>${efValue}</strong>
+          <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
+        </div>
+      `;
 
+      // 1. POINTS
       if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+        if (!state.datPointsVisible) return null;
+        
         const [lon, lat] = geometry.coordinates;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 6,
-          color: '#ffffff',
-          weight: 1,
-          fillColor: datColorByEf(efValue),
-          fillOpacity: 1,
-        });
-        marker.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-            <span>Point</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
-          </div>
-        `);
-        return marker;
+        const color = datColorByEf(efValue);
+        const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
+
+        if (isNonTornado) {
+          // Render circles for non-tornado points
+          const marker = L.circleMarker([lat, lon], {
+            pane: 'datPointsPane',
+            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: 1,
+          });
+          marker.bindPopup(popupHtml);
+          return marker;
+        } else {
+          // Render upside-down SVG triangles for tornado points
+          const svgIcon = L.divIcon({
+            className: 'dat-point-icon',
+            html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          });
+          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon });
+          marker.bindPopup(popupHtml);
+          return marker;
+        }
       }
 
+      // 2. PATHS (LINES)
       if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
+        if (!state.datPathsVisible) return null;
         const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
         const line = L.polyline(latLngs, {
-          color: datColorByEf(efValue),
-          weight: 3,
-          opacity: 0.9,
+          pane: 'datLinesPane',
+          color: datColorByEf(efValue), weight: 3, opacity: 0.9,
         });
-        line.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
+        line.bindPopup(popupHtml);
         return line;
       }
 
+      // 3. POLYGONS
       if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+        if (!state.datPolygonsVisible) return null;
         const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
         const polygon = L.polygon(latLngs, {
-          color: datColorByEf(efValue),
-          fillColor: datColorByEf(efValue),
-          fillOpacity: 0.3,
-          weight: 2,
+          pane: 'datPolygonsPane',
+          color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: 0.35, weight: 2,
         });
-        polygon.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
+        polygon.bindPopup(popupHtml);
         return polygon;
       }
 
@@ -722,24 +726,23 @@ function renderDatLayer(features) {
 
 function datColorByEf(value) {
   const text = String(value || '').trim().toUpperCase();
+  
+  // Custom non-tornado colors distinct from EF palette
+  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6'; // Vivid Purple
+  if (text.includes('TROPICAL')) return '#10b981'; // Emerald Green
+  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e'; // Warm Grey
+
   const palette = {
-    EF5: '#9d174d',
-    EF4: '#dc2626',
-    EF3: '#f59e0b',
+    'EF5': '#9d174d',
+    'EF4': '#dc2626',
+    'EF3': '#f59e0b',
     'EF3+': '#f59e0b',
-    EF2: '#facc15',
-    EF1: '#4ade80',
-    EF0: '#22d3ee',
-    EFU: '#94a3b8',
-    TSTM: '#a78bfa',
-    'TSTM/WIND': '#a78bfa',
-    WIND: '#a78bfa',
-    TROPICAL: '#f97316',
-    'N/A': '#cbd5e1',
-    UNKNOWN: '#cbd5e1',
-    '<NULL>': '#cbd5e1',
+    'EF2': '#facc15',
+    'EF1': '#4ade80',
+    'EF0': '#22d3ee',
+    'EFU': '#64748b',
   };
-  return palette[text] || '#60a5fa';
+  return palette[text] || '#a8a29e';
 }
 
 function coordinatesToLatLngs(coordinates) {
