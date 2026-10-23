@@ -586,32 +586,47 @@ async function handleTrackSelection(record, preserveMapView = true) {
 }
 
 async function fetchJsonIfAvailable(url) {
-  try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-      return null;
-    }
+  const candidateUrls = [
+    url,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
 
-    const contentType = response.headers.get('content-type') || '';
-    const isJsonLike = contentType.includes('application/json') || contentType.includes('text/json');
-    const text = await response.text();
-
-    if (!text || !text.trim()) {
-      return null;
+  const seen = new Set();
+  for (const candidateUrl of candidateUrls) {
+    if (!candidateUrl || seen.has(candidateUrl)) {
+      continue;
     }
-
-    if (!isJsonLike && !text.trim().startsWith('{') && !text.trim().startsWith('[')) {
-      return null;
-    }
+    seen.add(candidateUrl);
 
     try {
-      return JSON.parse(text);
+      const response = await fetch(candidateUrl, { cache: 'no-store' });
+      if (!response.ok) {
+        continue;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      const text = await response.text();
+      if (!text || !text.trim()) {
+        continue;
+      }
+
+      const looksLikeJson = contentType.includes('application/json') || contentType.includes('text/json') || text.trim().startsWith('{') || text.trim().startsWith('[');
+      if (!looksLikeJson) {
+        continue;
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        continue;
+      }
     } catch (error) {
-      return null;
+      continue;
     }
-  } catch (error) {
-    return null;
   }
+
+  return null;
 }
 
 async function fetchNoaaDatForTrack(record) {
@@ -625,53 +640,41 @@ async function fetchNoaaDatForTrack(record) {
   }
 
   const serviceUrl = 'https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/0';
-  const dateFieldCandidates = ['stormdate', 'DATE', 'BEGIN_DATE', 'EVENT_DATE'];
   const rawDate = normalizeDateString(record.beginDate || record.endDate);
   const beginDate = rawDate || `${year}-01-01`;
   const endDate = addDays(beginDate, 2);
 
-  for (const dateField of dateFieldCandidates) {
-    const where = `${dateField} >= date '${beginDate}' AND ${dateField} < date '${endDate}'`;
-    const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=100`;
-    const payload = await fetchJsonIfAvailable(queryUrl);
-    if (!payload) {
-      continue;
-    }
-
-    const features = Array.isArray(payload?.features) ? payload.features : [];
-    if (!features.length) {
-      continue;
-    }
-
-    const filtered = features.filter((feature) => {
-      const attrs = feature?.attributes || {};
-      const dates = dateFieldCandidates
-        .map((key) => attrs[key])
-        .filter((value) => value !== undefined && value !== null && value !== '')
-        .map((value) => Number(value) || value)
-        .map((value) => {
-          if (typeof value === 'number' && Number.isFinite(value)) {
-            const dt = new Date(value);
-            return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
-          }
-          return normalizeDateString(value);
-        })
-        .filter(Boolean);
-
-      if (!dates.length) {
-        return true;
-      }
-
-      return dates.some((date) => date >= beginDate && date < endDate);
-    });
-
-    if (filtered.length) {
-      return filtered;
-    }
-    return features.slice(0, 20);
+  const where = `stormdate >= date '${beginDate}' AND stormdate < date '${endDate}'`;
+  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=stormdate,lat,lon,damage_txt,efscale,office,event_id,damage,injuries,deaths,comments&f=json&resultRecordCount=100`;
+  const payload = await fetchJsonIfAvailable(queryUrl);
+  if (!payload) {
+    return null;
   }
 
-  return null;
+  const features = Array.isArray(payload?.features) ? payload.features : [];
+  if (!features.length) {
+    return null;
+  }
+
+  const filtered = features.filter((feature) => {
+    const attrs = feature?.attributes || {};
+    const dateValue = attrs.stormdate;
+    if (dateValue === undefined || dateValue === null || dateValue === '') {
+      return true;
+    }
+
+    const normalizedDate = typeof dateValue === 'number'
+      ? new Date(dateValue).toISOString().slice(0, 10)
+      : normalizeDateString(String(dateValue));
+
+    if (!normalizedDate) {
+      return true;
+    }
+
+    return normalizedDate >= beginDate && normalizedDate < endDate;
+  });
+
+  return filtered.length ? filtered : features.slice(0, 20);
 }
 
 async function queryNoaaDatService(serviceUrl, record, targetYear) {
@@ -683,12 +686,8 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
   const beginDate = rawDate || `${targetYear}-01-01`;
   const nextDay = addDays(beginDate, 1);
 
-  const whereParts = [
-    `((stormdate >= date '${beginDate}' AND stormdate < date '${nextDay}') OR (DATE >= date '${beginDate}' AND DATE < date '${nextDay}') OR (BEGIN_DATE >= date '${beginDate}' AND BEGIN_DATE < date '${nextDay}') OR (EVENT_DATE >= date '${beginDate}' AND EVENT_DATE < date '${nextDay}'))`
-  ];
-
-  const where = whereParts.join(' AND ');
-  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=100`;
+  const where = `stormdate >= date '${beginDate}' AND stormdate < date '${nextDay}'`;
+  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=stormdate,lat,lon,damage_txt,efscale,office,event_id,damage,injuries,deaths,comments&f=json&resultRecordCount=100`;
 
   const payload = await fetchJsonIfAvailable(queryUrl);
   if (!payload) {
@@ -700,585 +699,35 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
     return [];
   }
 
-  const filtered = features.filter((feature) => {
-    const attrs = feature?.attributes || {};
-    const dateValues = [
-      attrs.stormdate,
-      attrs.DATE,
-      attrs.BEGIN_DATE,
-      attrs.END_DATE,
-      attrs.EVENT_DATE,
-      attrs.date,
-      attrs.begin_date,
-      attrs.end_date,
-      attrs.event_date,
-    ]
-      .filter((value) => value !== undefined && value !== null && value !== '')
-      .map((value) => {
-        if (typeof value === 'number') {
-          const dt = new Date(value);
-          return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
-        }
-        return normalizeDateString(value);
-      })
-      .filter(Boolean);
-
-    if (!dateValues.length) {
-      return true;
-    }
-
-    return dateValues.some((value) => value >= beginDate && value < nextDay);
-  });
-
-  return filtered.length ? filtered : features.slice(0, 20);
+  return features;
 }
 
-function addDays(dateString, days) {
-  const date = new Date(`${dateString}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) {
-    return dateString;
-  }
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function normalizeArcgisDatFeature(feature) {
-  const attrs = feature?.attributes || {};
-  const record = {
-    id: `NOAA-DAT-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    reportId: firstNonEmpty(attrs.REPORT_ID, attrs.REPORTID, attrs.OBJECTID, attrs.ID, `DAT-${Date.now()}`),
-    source: 'NOAA DAT',
-    year: Number(firstNonEmpty(attrs.YEAR, attrs.year, attrs.DATE, attrs.EVENT_DATE, String(new Date().getFullYear()))) || new Date().getFullYear(),
-    beginDate: normalizeDateString(firstNonEmpty(attrs.BEGIN_DATE, attrs.DATE, attrs.EVENT_DATE, attrs.START_DATE)),
-    beginTime: normalizeTimeString(firstNonEmpty(attrs.BEGIN_TIME, attrs.TIME, attrs.START_TIME)),
-    endDate: normalizeDateString(firstNonEmpty(attrs.END_DATE, attrs.DATE, attrs.EVENT_DATE, attrs.START_DATE)),
-    endTime: normalizeTimeString(firstNonEmpty(attrs.END_TIME, attrs.TIME, attrs.START_TIME)),
-    beginLatitude: readFloat(attrs, ['BEGIN_LAT', 'BEGINLAT', 'LAT', 'BEGIN_LATITUDE', 'START_LAT', 'latitude']),
-    beginLongitude: readFloat(attrs, ['BEGIN_LON', 'BEGINLON', 'LON', 'BEGIN_LONGITUDE', 'START_LON', 'longitude']),
-    endLatitude: readFloat(attrs, ['END_LAT', 'ENDLAT', 'LAT', 'END_LATITUDE', 'START_LAT']),
-    endLongitude: readFloat(attrs, ['END_LON', 'ENDLON', 'LON', 'END_LONGITUDE', 'START_LON']),
-    magnitude: normalizeMagnitude(firstNonEmpty(attrs.MAG, attrs.MAGNITUDE, attrs.F_SCALE, attrs.EF_SCALE, '0')),
-    qcNotes: firstNonEmpty(attrs.NOTES, attrs.COMMENT, attrs.NOTE, '') || 'Retrieved from NOAA DAT ArcGIS service.',
-    sourceRecord: attrs,
-  };
-
-  if (!Number.isFinite(record.beginLatitude) || !Number.isFinite(record.beginLongitude)) {
-    return null;
-  }
-
-  if (!Number.isFinite(record.endLatitude)) {
-    record.endLatitude = record.beginLatitude;
-  }
-  if (!Number.isFinite(record.endLongitude)) {
-    record.endLongitude = record.beginLongitude;
-  }
-
-  return record;
-}
-
-function renderEditor() {
-  const record = getSelectedRecord();
-  const form = document.getElementById('segmentForm');
-  const emptyMessage = document.getElementById('selectionEmpty');
-
+async function handleTrackSelection(record, preserveMapView = true) {
   if (!record) {
-    form.classList.add('hidden');
-    emptyMessage.classList.remove('hidden');
     return;
   }
 
-  emptyMessage.classList.add('hidden');
-  form.classList.remove('hidden');
+  state.selectedId = record.id;
+  renderEditor();
+  renderFilteredData({ preserveMapView: true });
 
-  document.getElementById('selectionLabel').textContent = `${record.reportId || record.id} • ${record.source}`;
-  document.getElementById('reportId').value = record.reportId || record.id;
-  document.getElementById('beginDate').value = record.beginDate || '';
-  document.getElementById('beginTime').value = record.beginTime || '';
-  document.getElementById('endDate').value = record.endDate || record.beginDate || '';
-  document.getElementById('endTime').value = record.endTime || record.beginTime || '';
-  document.getElementById('beginLat').value = Number.isFinite(record.beginLatitude) ? record.beginLatitude : '';
-  document.getElementById('beginLon').value = Number.isFinite(record.beginLongitude) ? record.beginLongitude : '';
-  document.getElementById('endLat').value = Number.isFinite(record.endLatitude) ? record.endLatitude : '';
-  document.getElementById('endLon').value = Number.isFinite(record.endLongitude) ? record.endLongitude : '';
-  document.getElementById('qcNotes').value = record.qcNotes || '';
-}
+  const matches = await fetchNoaaDatForTrack(record);
+  state.noaaDatMatches = matches || [];
 
-function getSelectedRecord() {
-  return [...state.rows, ...state.spcRows].find((row) => row.id === state.selectedId) || null;
-}
-
-function calculateStats(rows) {
-  const maxMagnitude = rows.reduce((max, row) => Math.max(max, row.magnitude), 0);
-  const maxLength = rows.reduce((max, row) => Math.max(max, row.lengthMiles || 0), 0);
-
-  return {
-    count: rows.length,
-    maxMagnitude,
-    maxLength,
-  };
-}
-
-function buildPopup(row) {
-  return `
-    <div class="popup-title">${row.reportId || row.id}</div>
-    <div class="popup-grid">
-      <span>Source</span><strong>${row.source}</strong>
-      <span>Year</span><strong>${row.year}</strong>
-      <span>State</span><strong>${row.state || 'Unknown'}</strong>
-      <span>Begins</span><strong>${Number(row.beginLatitude).toFixed(2)}, ${Number(row.beginLongitude).toFixed(2)}</strong>
-      <span>Ends</span><strong>${Number(row.endLatitude).toFixed(2)}, ${Number(row.endLongitude).toFixed(2)}</strong>
-      <span>Magnitude</span><strong>F${row.magnitude || 0}</strong>
-      <span>Length</span><strong>${row.lengthMiles ? row.lengthMiles.toFixed(1) : '0.0'} mi</strong>
-    </div>
-  `;
-}
-
-function magnitudeColor(magnitude) {
-  const palette = {
-    0: '#60a5fa',
-    1: '#34d399',
-    2: '#fbbf24',
-    3: '#f97316',
-    4: '#ef4444',
-    5: '#a855f7',
-  };
-
-  return palette[Math.max(0, Math.min(5, Number(magnitude) || 0))] || '#60a5fa';
-}
-
-function setStatus(message, isError = false) {
-  const status = document.getElementById('status');
-  status.textContent = message;
-  status.classList.toggle('error', isError);
-}
-
-function firstNonEmpty() {
-  for (const value of arguments) {
-    if (value === undefined || value === null || value === '') {
-      continue;
-    }
-
-    const text = String(value).trim();
-    if (text && text.toLowerCase() !== 'nan' && text.toLowerCase() !== 'null') {
-      return text;
-    }
-  }
-  return '';
-}
-
-function readFloat(obj, keys) {
-  for (const key of keys) {
-    const value = obj && obj[key];
-    if (value === undefined || value === null || value === '') {
-      continue;
-    }
-
-    const parsed = Number.parseFloat(String(value).replace(/,/g, '').trim());
-    if (!Number.isFinite(parsed)) {
-      continue;
-    }
-
-    if (parsed === 0 || parsed === -99900 || Math.abs(parsed) >= 99900) {
-      return Number.NaN;
-    }
-
-    return parsed;
-  }
-
-  return Number.NaN;
-}
-
-function normalizeRow(row, source = 'CSV') {
-  if (!row) {
-    return null;
-  }
-
-  const reportId = firstNonEmpty(
-    row.stormEventsReportID,
-    row.reportId,
-    row.report_id,
-    row.stormEventID,
-    row.id,
-    row.om,
-    row.oneTorID,
-    row.tornadoreportid,
-    row.event_id
-  );
-
-  const beginDate = firstNonEmpty(
-    row.beginDate,
-    row.begin_date,
-    row.date,
-    row.startDate,
-    row.beginDateTxt,
-    row.beginTimestamp,
-    row.begin_timestamp
-  );
-  const beginTime = firstNonEmpty(row.beginTime, row.begin_time, row.time, row.startTime, row.start_time);
-  const endDate = firstNonEmpty(row.endDate, row.end_date, row.edat, row.endDateTxt, row.endTimestamp, row.end_timestamp);
-  const endTime = firstNonEmpty(row.endTime, row.end_time, row.etime, row.endTimeTxt);
-
-  const beginTimestamp = firstNonEmpty(row.beginTimestamp, row.begin_timestamp, row.beginDate, row.begin_date, row.date);
-  const endTimestamp = firstNonEmpty(row.endTimestamp, row.end_timestamp, row.endDate, row.end_date, row.date);
-
-  const normalizedBeginDate = normalizeDateString(beginTimestamp || beginDate);
-  const normalizedEndDate = normalizeDateString(endTimestamp || endDate || beginDate);
-  const normalizedBeginTime = normalizeTimeString(beginTimestamp || beginTime);
-  const normalizedEndTime = normalizeTimeString(endTimestamp || endTime || beginTime);
-
-  const beginDateValue = firstNonEmpty(normalizedBeginDate, beginDate);
-  const beginTimeValue = firstNonEmpty(normalizedBeginTime, beginTime);
-  const endDateValue = firstNonEmpty(normalizedEndDate, endDate, beginDate);
-  const endTimeValue = firstNonEmpty(normalizedEndTime, endTime, beginTime);
-
-  const beginLatitude = readFloat(row, ['beginLatitude', 'begin_lat', 'slat', 'startLat', 'lat']);
-  const beginLongitude = readFloat(row, ['beginLongitude', 'begin_lon', 'slon', 'startLon', 'lon']);
-  const endLatitude = readFloat(row, ['endLatitude', 'end_lat', 'elat', 'endLat']);
-  const endLongitude = readFloat(row, ['endLongitude', 'end_lon', 'elon', 'endLon']);
-
-  if (!Number.isFinite(beginLatitude) || !Number.isFinite(beginLongitude) || !Number.isFinite(endLatitude) || !Number.isFinite(endLongitude)) {
-    return null;
-  }
-
-  const magnitude = normalizeMagnitude(firstNonEmpty(row.mag, row.m, row.fscale, row.efscale, row.magnitude));
-  const year = parseYear(row, beginDateValue, endDateValue, row.yr, row.year);
-  const lengthMiles = readFloat(row, ['len', 'length', 'lengthMiles', 'pathLengthMi', 'pathlength']) || 0;
-
-  const record = {
-    id: `${source}-${String(reportId || `${year}-${Math.random().toString(16).slice(2)}`)}`,
-    reportId: String(reportId || `${year}-unknown`),
-    source,
-    year,
-    beginDate: normalizeDateString(beginDateValue),
-    beginTime: normalizeTimeString(beginTimeValue),
-    endDate: normalizeDateString(endDateValue || beginDateValue),
-    endTime: normalizeTimeString(endTimeValue || beginTimeValue),
-    beginLatitude,
-    beginLongitude,
-    endLatitude,
-    endLongitude,
-    magnitude,
-    lengthMiles,
-    state: firstNonEmpty(row.st, row.state, row.stateName, row.state_name, 'Unknown'),
-    county: firstNonEmpty(row.cou, row.county, row.countyName, row.county_name, ''),
-    qcNotes: firstNonEmpty(row.qcNotes, row.notes, row.qc_note, row.comment, ''),
-    sourceRecord: row,
-  };
-
-  if (!Number.isFinite(record.year)) {
-    record.year = getYearFromDate(record.beginDate);
-  }
-  return record;
-}
-
-function refreshYearBounds() {
-  const allRows = [...state.rows, ...state.spcRows];
-  const years = allRows
-    .map((row) => Number(row.year || getYearFromDate(row.beginDate)))
-    .filter(Number.isFinite);
-
-  if (!years.length) {
-    return;
-  }
-
-  const minYear = Math.min(...years);
-  const maxYear = Math.max(...years);
-
-  const yearMinInput = document.getElementById('yearMin');
-  const yearMaxInput = document.getElementById('yearMax');
-  yearMinInput.min = String(minYear);
-  yearMinInput.max = String(maxYear);
-  yearMaxInput.min = String(minYear);
-  yearMaxInput.max = String(maxYear);
-
-  const nextMin = Math.max(state.yearMin || minYear, minYear);
-  const nextMax = Math.min(state.yearMax || maxYear, maxYear);
-  yearMinInput.value = String(nextMin);
-  yearMaxInput.value = String(nextMax);
-
-  if (Number(yearMinInput.value) > Number(yearMaxInput.value)) {
-    yearMaxInput.value = String(yearMinInput.value);
-  }
-
-  state.yearMin = Number(yearMinInput.value);
-  state.yearMax = Number(yearMaxInput.value);
-  updateFilterReadouts();
-  updateRangeFill();
-
-  state.allBounds = L.latLngBounds(
-    allRows
-      .map((row) => {
-        const points = [];
-        if (Number.isFinite(row.beginLatitude) && Number.isFinite(row.beginLongitude)) {
-          points.push([row.beginLatitude, row.beginLongitude]);
-        }
-        if (Number.isFinite(row.endLatitude) && Number.isFinite(row.endLongitude)) {
-          points.push([row.endLatitude, row.endLongitude]);
-        }
-        return points;
-      })
-      .filter((points) => points.length)
-      .flat()
-  );
-
-  if (state.allBounds && state.allBounds.isValid()) {
-    state.map.fitBounds(state.allBounds, { padding: [24, 24] });
-  }
-}
-
-function parseDatRecords(text) {
-  const lines = text.split(/\r?\n/);
-  const records = [];
-  let current = {};
-
-  const flushCurrent = () => {
-    if (!Object.keys(current).length) {
+  if (matches && matches.length) {
+    const first = matches[0];
+    const normalized = normalizeArcgisDatFeature(first);
+    if (normalized) {
+      setStatus(
+        `Selected ${record.reportId || record.id}. NOAA DAT matched ${matches.length} record(s) for ${record.beginDate || record.endDate || 'this date'}.`,
+        false
+      );
       return;
     }
-    const normalized = normalizeDatRecord(current);
-    if (normalized) {
-      records.push(normalized);
-    }
-    current = {};
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#') || line.startsWith('//')) {
-      continue;
-    }
-
-    const kvMatch = line.match(/^([A-Za-z0-9_\-\s]+?)\s*[:=]\s*(.+)$/);
-    if (kvMatch) {
-      const key = kvMatch[1].trim().toLowerCase();
-      const value = kvMatch[2].trim();
-      current[key] = value;
-      continue;
-    }
-
-    const possibleDelim = line.includes('\t') ? '\t' : line.includes('|') ? '|' : line.includes(',') ? ',' : null;
-    if (possibleDelim) {
-      const parts = line.split(possibleDelim).map((part) => part.trim());
-      if (parts.length >= 4) {
-        const [date, time, lat, lon, ...rest] = parts;
-        current.date = current.date || date;
-        current.time = current.time || time;
-        current.lat = current.lat || lat;
-        current.lon = current.lon || lon;
-        if (rest.length) {
-          current.notes = current.notes || rest.join(' ');
-        }
-      }
-      continue;
-    }
-
-    if (line === '---' || line === 'END') {
-      flushCurrent();
-    }
   }
 
-  flushCurrent();
-  return records;
-}
-
-function normalizeDatRecord(obj) {
-  const normalized = {
-    reportId: firstNonEmpty(
-      obj.report_id,
-      obj.reportid,
-      obj.storm_id,
-      obj.stormid,
-      obj.event_id,
-      obj.id,
-      `DAT-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    ),
-    source: 'DAT',
-    beginDate: normalizeDateString(firstNonEmpty(obj.date, obj.begin_date, obj.start_date)),
-    beginTime: normalizeTimeString(firstNonEmpty(obj.time, obj.begin_time, obj.start_time)),
-    endDate: normalizeDateString(firstNonEmpty(obj.end_date, obj.date, obj.begin_date, obj.start_date)),
-    endTime: normalizeTimeString(firstNonEmpty(obj.end_time, obj.time, obj.endTime, obj.begin_time, obj.start_time)),
-    beginLatitude: readFloat(obj, ['lat', 'latitude', 'begin_lat', 'start_lat']),
-    beginLongitude: readFloat(obj, ['lon', 'longitude', 'begin_lon', 'start_lon']),
-    endLatitude: readFloat(obj, ['end_lat', 'endlatitude', 'end_latitude', 'lat']),
-    endLongitude: readFloat(obj, ['end_lon', 'endlongitude', 'end_longitude', 'lon']),
-    qcNotes: firstNonEmpty(obj.notes, obj.comment, obj.note, obj.qc_note, ''),
-    magnitude: normalizeMagnitude(firstNonEmpty(obj.magnitude, obj.mag, obj.rating, obj.damage, '0')),
-  };
-
-  if (!Number.isFinite(normalized.beginLatitude) || !Number.isFinite(normalized.beginLongitude)) {
-    return null;
-  }
-
-  const year = getYearFromDate(normalized.beginDate) || new Date().getFullYear();
-  normalized.id = `DAT-${normalized.reportId}-${year}`;
-  normalized.reportId = String(normalized.reportId);
-  normalized.year = year;
-  normalized.sourceRecord = obj;
-
-  if (!Number.isFinite(normalized.endLatitude)) {
-    normalized.endLatitude = normalized.beginLatitude;
-  }
-  if (!Number.isFinite(normalized.endLongitude)) {
-    normalized.endLongitude = normalized.beginLongitude;
-  }
-  if (!normalized.beginDate) {
-    normalized.beginDate = `${year}-01-01`;
-  }
-
-  return normalized;
-}
-
-function normalizeMagnitude(value) {
-  if (value === undefined || value === null || value === '') {
-    return 0;
-  }
-
-  const numeric = Number.parseFloat(value);
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(5, Math.round(numeric)));
-}
-
-function parseYear(row, beginDate, endDate, altYear, fallbackYear) {
-  const candidate = firstNonEmpty(altYear, fallbackYear, beginDate, endDate);
-  if (!candidate) {
-    return 0;
-  }
-
-  const num = Number.parseInt(candidate, 10);
-  if (Number.isFinite(num)) {
-    return num;
-  }
-
-  const date = new Date(candidate);
-  if (!Number.isNaN(date.getTime())) {
-    return date.getFullYear();
-  }
-
-  const dateText = normalizeDateString(candidate);
-  if (!dateText) {
-    return 0;
-  }
-
-  const yearFromDate = Number.parseInt(dateText.slice(0, 4), 10);
-  return Number.isFinite(yearFromDate) ? yearFromDate : 0;
-}
-
-function normalizeDateString(value) {
-  const text = firstNonEmpty(value);
-  if (!text) {
-    return '';
-  }
-
-  const cleaned = String(text).replace(/\s+/g, ' ').trim();
-
-  if (/^\d{8}$/.test(cleaned)) {
-    return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`;
-  }
-
-  if (/^\d{8}-\d{4}$/.test(cleaned) || /^\d{12}$/.test(cleaned)) {
-    const compact = cleaned.replace(/[-:]/g, '').slice(0, 12);
-    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
-  }
-
-  if (/^\d{4}\d{2}\d{2}-\d{4}$/.test(cleaned)) {
-    const compact = cleaned.replace(/[-:]/g, '');
-    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
-  }
-
-  const parsed = new Date(cleaned);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-
-  const matches = cleaned.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (matches) {
-    return `${matches[1]}-${String(matches[2]).padStart(2, '0')}-${String(matches[3]).padStart(2, '0')}`;
-  }
-
-  return cleaned;
-}
-
-function normalizeTimeString(value) {
-  const text = firstNonEmpty(value);
-  if (!text) {
-    return '';
-  }
-
-  const cleaned = String(text).trim();
-
-  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(cleaned) || /^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
-    return '';
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(cleaned)) {
-    const match = cleaned.match(/\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (match) {
-      return `${String(match[1]).padStart(2, '0')}:${String(match[2]).padStart(2, '0')}`;
-    }
-  }
-
-  const timestampMatch = cleaned.match(/^(\d{8})[-](\d{4})$/);
-  if (timestampMatch) {
-    return `${timestampMatch[2].slice(0, 2)}:${timestampMatch[2].slice(2, 4)}`;
-  }
-
-  const compact = cleaned.replace(/[^\d]/g, '');
-  if (compact.length === 3 || compact.length === 4 || compact.length === 6) {
-    const normalized = compact.padStart(4, '0').slice(0, 4);
-    return `${normalized.slice(0, 2)}:${normalized.slice(2, 4)}`;
-  }
-
-  const matches = cleaned.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (matches) {
-    return `${String(matches[1]).padStart(2, '0')}:${String(matches[2]).padStart(2, '0')}`;
-  }
-
-  return cleaned;
-}
-
-function getYearFromDate(dateText) {
-  const text = normalizeDateString(dateText);
-  if (!text) {
-    return 0;
-  }
-  const year = Number.parseInt(text.slice(0, 4), 10);
-  return Number.isFinite(year) ? year : 0;
-}
-
-function toCsv(rows) {
-  if (!rows.length) {
-    return '';
-  }
-
-  const headers = [
-    'source',
-    'reportId',
-    'beginDate',
-    'beginTime',
-    'endDate',
-    'endTime',
-    'beginLatitude',
-    'beginLongitude',
-    'endLatitude',
-    'endLongitude',
-    'magnitude',
-    'qcNotes',
-    'originalReportId',
-  ];
-
-  const escapeValue = (value) => {
-    const text = value === undefined || value === null ? '' : String(value);
-    return `"${text.replace(/"/g, '""')}"`;
-  };
-
-  const lines = [headers.join(',')];
-  for (const row of rows) {
-    const values = headers.map((header) => escapeValue(row[header] ?? ''));
-    lines.push(values.join(','));
-  }
-
-  return lines.join('\n');
+  setStatus(
+    `Selected ${record.reportId || record.id}. No NOAA DAT records matched the track date in the ArcGIS service lookup.`,
+    false
+  );
 }
