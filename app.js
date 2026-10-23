@@ -116,8 +116,8 @@ async function loadData() {
     }
 
     state.rows = rows
-      .sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
-
+      .sort((a, b) => String(a.beginDate || '').localeCompare(String(b.beginDate || '')) || 
+                      String(a.beginTime || '').localeCompare(String(b.beginTime || '')));
     state.spcRows = await loadSpcRows();
 
     if (!state.rows.length && !state.spcRows.length) {
