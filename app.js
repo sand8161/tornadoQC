@@ -45,6 +45,44 @@ async function init() {
   await loadData();
 }
 
+async function loadData() {
+  try {
+    let rows = await loadBundledReportParts();
+
+    if (!rows.length) {
+      const csvText = await fetchCsvWithFallback();
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      rows = parsed.data
+        .map((row) => normalizeRow(row, 'SPC'))
+        .filter(Boolean);
+    }
+
+    state.rows = rows
+      .sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
+
+    state.spcRows = await loadSpcRows();
+
+    if (!state.rows.length && !state.spcRows.length) {
+      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
+    }
+
+    refreshYearBounds();
+    renderFilteredData({ preserveMapView: true });
+    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(
+      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
+      true
+    );
+  }
+}
+
 function bindControls() {
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
