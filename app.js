@@ -670,6 +670,7 @@ function normalizeRow(row, source) {
   }
 
   const id = firstNonEmpty(
+    row.StormEventsReportID,
     row.id,
     row.reportId,
     row.report_id,
