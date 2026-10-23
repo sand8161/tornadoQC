@@ -581,17 +581,32 @@ async function handleTrackSelection(record, preserveMapView = true) {
   renderEditor();
   renderFilteredData({ preserveMapView: true });
 
+  const dateLabel = record.beginDate || record.endDate || 'this date';
+
+  // Inject spinner animation CSS if it isn't already in the document
+  if (!document.getElementById('spinner-style')) {
+    const style = document.createElement('style');
+    style.id = 'spinner-style';
+    style.innerHTML = `@keyframes dat-spin { 100% { transform: rotate(360deg); } }`;
+    document.head.appendChild(style);
+  }
+
+  // Set the loading status with a CSS spinner
+  setStatus(`
+    <span style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation: dat-spin 0.75s linear infinite; vertical-align: text-bottom; margin-right: 6px;"></span>
+    Searching NOAA DAT for ${dateLabel}...
+  `);
+
   const matches = await fetchNoaaDatForTrack(record);
   state.noaaDatMatches = matches || [];
   renderDatLayer(matches || []);
 
-  const dateLabel = record.beginDate || record.endDate || 'this date';
   if (matches && matches.length) {
     setStatus(`Selected ${record.reportId || record.id}. NOAA DAT found ${matches.length} feature(s) on ${dateLabel}.`, false);
     return;
   }
 
-  setStatus(`Selected ${record.reportId || record.id}. NOAA DAT search completed for ${dateLabel}.`, false);
+  setStatus(`Selected ${record.reportId || record.id}. NOAA DAT search completed for ${dateLabel} (0 features found).`, false);
 }
 
 function clearDatLayer() {
@@ -781,7 +796,8 @@ function setStatus(message, isError = false) {
     return;
   }
 
-  statusEl.textContent = message || '';
+  // Changed from textContent to innerHTML to allow the spinner HTML to render
+  statusEl.innerHTML = message || '';
   statusEl.classList.toggle('error', Boolean(isError));
 }
 
@@ -1273,7 +1289,7 @@ const layerIds = Array.from({ length: 16 }, (_, index) => index);
 
   for (const layerId of layerIds) {
     // Append the bounding box and spatial relation to the ArcGIS query
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=json&where=1%3D1&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=1%3D1&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;
 
     try {
       const response = await fetch(url, { cache: 'no-store' });
