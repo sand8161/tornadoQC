@@ -1161,6 +1161,18 @@ function normalizeTimeString(value) {
   }
 
   const cleaned = String(text).trim();
+
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(cleaned) || /^\d{4}-\d{2}-\d{2}$/.test(cleaned)) {
+    return '';
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(cleaned)) {
+    const match = cleaned.match(/\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+      return `${String(match[1]).padStart(2, '0')}:${String(match[2]).padStart(2, '0')}`;
+    }
+  }
+
   const timestampMatch = cleaned.match(/^(\d{8})[-](\d{4})$/);
   if (timestampMatch) {
     return `${timestampMatch[2].slice(0, 2)}:${timestampMatch[2].slice(2, 4)}`;
