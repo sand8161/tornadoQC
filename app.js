@@ -25,14 +25,9 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function loadBundledReportParts() {
   const fileNames = [
-    '1950-2026_Tornado_Reports_part1.csv',
-    '1950-2026_Tornado_Reports_part2.csv',
-    '1950-2026_Tornado_Reports_part3.csv',
-    '1950-2026_Tornado_Reports_part4.csv',
-    '1950-2026_Tornado_Reports_part5.csv',
-    '1950-2026_Tornado_Reports_part6.csv',
-    '1950-2026_Tornado_Reports_part7.csv'
+    '1950-2026_Tornado_Reports_part1_2.csv'
   ];
+  
   const loaded = [];
 
   for (const fileName of fileNames) {
@@ -118,6 +113,7 @@ async function loadData() {
     state.rows = rows
       .sort((a, b) => String(a.beginDate || '').localeCompare(String(b.beginDate || '')) || 
                       String(a.beginTime || '').localeCompare(String(b.beginTime || '')));
+
     state.spcRows = await loadSpcRows();
 
     if (!state.rows.length && !state.spcRows.length) {
@@ -933,15 +929,16 @@ function refreshYearBounds() {
 
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
+  
   if (yearMinInput) {
     yearMinInput.min = String(state.yearMin);
     yearMinInput.max = String(state.yearMax);
-    yearMinInput.value = String(Math.min(Number(yearMinInput.value || state.yearMin), state.yearMax));
+    yearMinInput.value = String(state.yearMin);
   }
   if (yearMaxInput) {
     yearMaxInput.min = String(state.yearMin);
     yearMaxInput.max = String(state.yearMax);
-    yearMaxInput.value = String(Math.max(Number(yearMaxInput.value || state.yearMax), state.yearMin));
+    yearMaxInput.value = String(state.yearMax);
   }
 
   state.yearMin = Number(yearMinInput?.value || state.yearMin);
@@ -999,20 +996,89 @@ function normalizeRow(row, source) {
     return null;
   }
 
+  const beginDate = normalizeDateString(firstNonEmpty(
+    row.beginDate,
+    row.begin_date,
+    row.BEGIN_DATE,
+    row.date,
+    row.DATE,
+    row.eventDate,
+    row.event_date,
+    row.event_date_utc,
+    row.begin_ymd,
+    row.BEGIN_YMD,
+    row['BEGIN DATE'],
+    row['BEGIN DATE (UTC)'],
+    row['Date'],
+    row.beginTimestamp
+  ));
+
+  const endDate = normalizeDateString(firstNonEmpty(
+    row.endDate,
+    row.end_date,
+    row.END_DATE,
+    row.end_ymd,
+    row.END_YMD,
+    row['END DATE'],
+    row.endTimestamp
+  ));
+
+  const beginTime = normalizeTimeString(firstNonEmpty(
+    row.beginTime,
+    row.begin_time,
+    row.BEGIN_TIME,
+    row['BEGIN TIME'],
+    row.time,
+    row.TIME,
+    row['Time'],
+    row.beginTimestamp
+  ));
+
+  const endTime = normalizeTimeString(firstNonEmpty(
+    row.endTime,
+    row.end_time,
+    row.END_TIME,
+    row['END TIME']
+  ));
+
   const beginLatitude = readFloat(firstNonEmpty(
-    row.beginLatitude, row.begin_lat, row.BEGIN_LAT, row.BEGINLAT, row.lat, row.latitude, row['Begin Lat'], row.slat
+    row.beginLatitude,
+    row.begin_lat,
+    row.BEGIN_LAT,
+    row.BEGINLAT,
+    row.lat,
+    row.latitude,
+    row['Begin Lat'],
+    row.slat
   ));
 
   const beginLongitude = readFloat(firstNonEmpty(
-    row.beginLongitude, row.begin_lon, row.BEGIN_LON, row.BEGINLON, row.lon, row.longitude, row['Begin Lon'], row.slon
+    row.beginLongitude,
+    row.begin_lon,
+    row.BEGIN_LON,
+    row.BEGINLON,
+    row.lon,
+    row.longitude,
+    row['Begin Lon'],
+    row.slon
   ));
 
   let endLatitude = readFloat(firstNonEmpty(
-    row.endLatitude, row.end_lat, row.END_LAT, row.ENDLAT, row['End Lat'], row.elat
+    row.endLatitude,
+    row.end_lat,
+    row.END_LAT,
+    row.ENDLAT,
+    row['End Lat'],
+    row.elat
   ));
 
   let endLongitude = readFloat(firstNonEmpty(
-    row.endLongitude, row.end_lon, row.END_LON, row.ENDLON, row['End Lon'], row.elon
+    row.endLongitude,
+    row.end_lon,
+    row.END_LON,
+    row.ENDLON,
+    row['End Lon'],
+    row.elon
   ));
 
   const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
@@ -1074,6 +1140,7 @@ function normalizeRow(row, source) {
     row.EVENT_ID,
     row.objectid,
     row.OBJECTID,
+    row.om,
     `${beginDate || 'unknown'}-${beginTime || '00:00'}-${beginLatitude || 0}-${beginLongitude || 0}`
   );
 
@@ -1090,7 +1157,7 @@ function normalizeRow(row, source) {
     endLatitude,
     endLongitude,
     magnitude,
-    year: Number(firstNonEmpty(row.year, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
+    year: Number(firstNonEmpty(row.year, row.yr, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
     county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
     state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
     lengthMiles: readFloat(firstNonEmpty(row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
