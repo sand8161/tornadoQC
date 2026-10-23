@@ -158,8 +158,17 @@ button {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+button.active {
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.12));
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
 button.secondary {
   background: transparent;
+}
+
+button.secondary.active {
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.18), rgba(245, 158, 11, 0.08));
 }
 
 button.primary {

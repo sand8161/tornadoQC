@@ -3,6 +3,7 @@ const FALLBACK_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(
 
 const state = {
   rows: [],
+  spcRows: [],
   filtered: [],
   map: null,
   layerGroup: null,
@@ -15,6 +16,8 @@ const state = {
   corrections: new Map(),
   theme: 'dark',
   noaaDatMatches: [],
+  spcLayerVisible: true,
+  spcMultiCountyOnly: false,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -35,6 +38,7 @@ async function init() {
 
   state.layerGroup = L.layerGroup().addTo(state.map);
   bindControls();
+  updateSpcControls();
   applyTheme('dark');
   await loadData();
 }
@@ -50,6 +54,8 @@ function bindControls() {
   const themeButton = document.getElementById('themeToggle');
   const saveButton = document.getElementById('saveChanges');
   const clearButton = document.getElementById('clearSelection');
+  const spcToggleButton = document.getElementById('spcToggle');
+  const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   yearMinInput.addEventListener('input', () => {
     const parsed = Number(yearMinInput.value);
@@ -75,6 +81,18 @@ function bindControls() {
     state.minMagnitude = Number(magnitudeInput.value);
     updateFilterReadouts();
     renderFilteredData();
+  });
+
+  spcToggleButton.addEventListener('click', () => {
+    state.spcLayerVisible = !state.spcLayerVisible;
+    updateSpcControls();
+    renderFilteredData({ preserveMapView: true });
+  });
+
+  spcMultiCountyButton.addEventListener('click', () => {
+    state.spcMultiCountyOnly = !state.spcMultiCountyOnly;
+    updateSpcControls();
+    renderFilteredData({ preserveMapView: true });
   });
 
   resetButton.addEventListener('click', () => {
@@ -269,6 +287,20 @@ function updateFilterReadouts() {
   document.getElementById('magnitudeValue').textContent = magnitudeInput.value;
 }
 
+function updateSpcControls() {
+  const spcToggleButton = document.getElementById('spcToggle');
+  const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
+
+  if (spcToggleButton) {
+    spcToggleButton.textContent = state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer';
+  }
+
+  if (spcMultiCountyButton) {
+    spcMultiCountyButton.textContent = state.spcMultiCountyOnly ? 'SPC: multi-county only' : 'SPC: all counties';
+    spcMultiCountyButton.classList.toggle('active', state.spcMultiCountyOnly);
+  }
+}
+
 async function loadBundledReportParts() {
   const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
   const loaded = [];
@@ -321,13 +353,15 @@ async function loadData() {
     state.rows = rows
       .sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
 
-    if (!state.rows.length) {
+    state.spcRows = await loadSpcRows();
+
+    if (!state.rows.length && !state.spcRows.length) {
       throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
     }
 
     refreshYearBounds();
     renderFilteredData({ preserveMapView: true });
-    setStatus(`Loaded ${state.rows.length.toLocaleString()} tornado records from the bundled report files.`);
+    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
   } catch (error) {
     console.error(error);
     setStatus(
@@ -337,77 +371,42 @@ async function loadData() {
   }
 }
 
-function refreshYearBounds() {
-  const years = state.rows
-    .map((row) => Number(row.year || getYearFromDate(row.beginDate)))
-    .filter(Number.isFinite);
+async function loadSpcRows() {
+  try {
+    const csvText = await fetchCsvWithFallback();
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => String(header).trim(),
+    });
 
-  if (!years.length) {
-    return;
+    return parsed.data
+      .map((row) => normalizeRow(row, 'SPC'))
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('Unable to load SPC layer:', error);
+    return [];
   }
-
-  const minYear = Math.min(...years);
-  const maxYear = Math.max(...years);
-
-  const yearMinInput = document.getElementById('yearMin');
-  const yearMaxInput = document.getElementById('yearMax');
-  yearMinInput.min = String(minYear);
-  yearMinInput.max = String(maxYear);
-  yearMaxInput.min = String(minYear);
-  yearMaxInput.max = String(maxYear);
-  yearMinInput.value = String(Math.max(state.yearMin || minYear, minYear));
-  yearMaxInput.value = String(Math.min(state.yearMax || maxYear, maxYear));
-
-  state.yearMin = Number(yearMinInput.value);
-  state.yearMax = Number(yearMaxInput.value);
-  updateFilterReadouts();
-
-  state.allBounds = L.latLngBounds(
-    state.rows
-      .map((row) => {
-        const points = [];
-        if (Number.isFinite(row.beginLatitude) && Number.isFinite(row.beginLongitude)) {
-          points.push([row.beginLatitude, row.beginLongitude]);
-        }
-        if (Number.isFinite(row.endLatitude) && Number.isFinite(row.endLongitude)) {
-          points.push([row.endLatitude, row.endLongitude]);
-        }
-        return points;
-      })
-      .filter((points) => points.length)
-      .flat()
-  );
-
-  if (state.allBounds && state.allBounds.isValid()) {
-    state.map.fitBounds(state.allBounds, { padding: [24, 24] });
-  }
-}
-
-async function fetchCsvWithFallback() {
-  const sources = [SPC_URL, FALLBACK_URL];
-
-  for (const source of sources) {
-    try {
-      const response = await fetch(source, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return await response.text();
-    } catch (error) {
-      console.warn(`CSV fetch failed for ${source}`, error);
-    }
-  }
-
-  throw new Error('Could not load SPC CSV from any source.');
 }
 
 function renderFilteredData(options = {}) {
   const { preserveMapView = false } = options;
-  const filtered = state.rows.filter((row) => {
+  const primaryRows = state.rows.filter((row) => {
     const rowYear = Number(row.year || getYearFromDate(row.beginDate));
     return rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
   });
 
+  let spcRows = [];
+  if (state.spcLayerVisible) {
+    spcRows = state.spcRows.filter((row) => {
+      const rowYear = Number(row.year || getYearFromDate(row.beginDate));
+      const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
+      const multiCountyPass = !state.spcMultiCountyOnly || isMultiCountyRow(row);
+      return inRange && multiCountyPass;
+    });
+  }
+
+  const filtered = [...primaryRows, ...spcRows];
   state.filtered = filtered;
   state.polyLines.clear();
   state.layerGroup.clearLayers();
@@ -423,6 +422,7 @@ function renderFilteredData(options = {}) {
   let bounds = L.latLngBounds([]);
 
   filtered.forEach((row) => {
+    const isSpc = row.source === 'SPC';
     const color = magnitudeColor(row.magnitude);
     const polyline = L.polyline(
       [
@@ -434,6 +434,7 @@ function renderFilteredData(options = {}) {
         weight: row.id === state.selectedId ? 6 : 3,
         opacity: row.id === state.selectedId ? 1 : 0.8,
         lineCap: 'round',
+        dashArray: isSpc ? '8 8' : null,
       }
     );
 
@@ -447,7 +448,7 @@ function renderFilteredData(options = {}) {
 
     const startMarker = L.circleMarker([row.beginLatitude, row.beginLongitude], {
       radius: 4,
-      color: '#f8fafc',
+      color: isSpc ? '#f8fafc' : '#f8fafc',
       fillColor: color,
       fillOpacity: 1,
       weight: 1,
@@ -473,6 +474,35 @@ function renderFilteredData(options = {}) {
 
   renderEditor();
   setStatus(`Showing ${filtered.length.toLocaleString()} tornado tracks for ${state.yearMin} to ${state.yearMax}.`, false);
+}
+
+function isMultiCountyRow(row) {
+  if (!row) {
+    return false;
+  }
+
+  const candidateValues = [
+    row.f2,
+    row.f_2,
+    row.multiCounty,
+    row.multi_county,
+    row.multiCounties,
+    row.multi_counties,
+    row.multiSegment,
+    row.multi_segment,
+    row.multiCountyCount,
+    row.countyCount,
+  ];
+
+  for (const value of candidateValues) {
+    const numeric = Number.parseFloat(String(value ?? '').replace(/,/g, '').trim());
+    if (Number.isFinite(numeric) && numeric !== 0) {
+      return true;
+    }
+  }
+
+  const countyText = String(row.county || row.counties || row.state || '').trim();
+  return /\band\b|\b&\b|\,/i.test(countyText) && countyText.length > 3;
 }
 
 async function handleTrackSelection(record, preserveMapView = true) {
@@ -709,7 +739,7 @@ function renderEditor() {
 }
 
 function getSelectedRecord() {
-  return state.rows.find((row) => row.id === state.selectedId) || null;
+  return [...state.rows, ...state.spcRows].find((row) => row.id === state.selectedId) || null;
 }
 
 function calculateStats(rows) {
@@ -863,6 +893,53 @@ function normalizeRow(row, source = 'CSV') {
   return record;
 }
 
+function refreshYearBounds() {
+  const allRows = [...state.rows, ...state.spcRows];
+  const years = allRows
+    .map((row) => Number(row.year || getYearFromDate(row.beginDate)))
+    .filter(Number.isFinite);
+
+  if (!years.length) {
+    return;
+  }
+
+  const minYear = Math.min(...years);
+  const maxYear = Math.max(...years);
+
+  const yearMinInput = document.getElementById('yearMin');
+  const yearMaxInput = document.getElementById('yearMax');
+  yearMinInput.min = String(minYear);
+  yearMinInput.max = String(maxYear);
+  yearMaxInput.min = String(minYear);
+  yearMaxInput.max = String(maxYear);
+  yearMinInput.value = String(Math.max(state.yearMin || minYear, minYear));
+  yearMaxInput.value = String(Math.min(state.yearMax || maxYear, maxYear));
+
+  state.yearMin = Number(yearMinInput.value);
+  state.yearMax = Number(yearMaxInput.value);
+  updateFilterReadouts();
+
+  state.allBounds = L.latLngBounds(
+    allRows
+      .map((row) => {
+        const points = [];
+        if (Number.isFinite(row.beginLatitude) && Number.isFinite(row.beginLongitude)) {
+          points.push([row.beginLatitude, row.beginLongitude]);
+        }
+        if (Number.isFinite(row.endLatitude) && Number.isFinite(row.endLongitude)) {
+          points.push([row.endLatitude, row.endLongitude]);
+        }
+        return points;
+      })
+      .filter((points) => points.length)
+      .flat()
+  );
+
+  if (state.allBounds && state.allBounds.isValid()) {
+    state.map.fitBounds(state.allBounds, { padding: [24, 24] });
+  }
+}
+
 function parseDatRecords(text) {
   const lines = text.split(/\r?\n/);
   const records = [];
@@ -1010,12 +1087,18 @@ function normalizeDateString(value) {
   }
 
   const cleaned = String(text).replace(/\s+/g, ' ').trim();
+
   if (/^\d{8}$/.test(cleaned)) {
     return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`;
   }
 
   if (/^\d{8}-\d{4}$/.test(cleaned) || /^\d{12}$/.test(cleaned)) {
     const compact = cleaned.replace(/[-:]/g, '').slice(0, 12);
+    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+  }
+
+  if (/^\d{4}\d{2}\d{2}-\d{4}$/.test(cleaned)) {
+    const compact = cleaned.replace(/[-:]/g, '');
     return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
   }
 
@@ -1044,14 +1127,15 @@ function normalizeTimeString(value) {
     return `${timestampMatch[2].slice(0, 2)}:${timestampMatch[2].slice(2, 4)}`;
   }
 
+  const compact = cleaned.replace(/[^\d]/g, '');
+  if (compact.length === 3 || compact.length === 4 || compact.length === 6) {
+    const normalized = compact.padStart(4, '0').slice(0, 4);
+    return `${normalized.slice(0, 2)}:${normalized.slice(2, 4)}`;
+  }
+
   const matches = cleaned.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (matches) {
     return `${String(matches[1]).padStart(2, '0')}:${String(matches[2]).padStart(2, '0')}`;
-  }
-
-  const compact = cleaned.replace(/[^\d]/g, '');
-  if (compact.length === 4) {
-    return `${compact.slice(0, 2)}:${compact.slice(2, 4)}`;
   }
 
   return cleaned;
