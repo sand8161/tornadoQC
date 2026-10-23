@@ -630,57 +630,22 @@ function normalizeRow(row, source) {
 
   const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
 
-  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude) || invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
+  const hasAnyValidCoordinate = [beginLatitude, beginLongitude, endLatitude, endLongitude].some((value) => value !== null && value !== undefined && value !== 0 && Math.abs(value) < 99900);
+  if (!hasAnyValidCoordinate) {
     return null;
   }
 
-  const magnitudeCandidates = [
-    row.magnitude,
-    row.mag,
-    row.MAG,
-    row.fscale,
-    row.f_scale,
-    row.F_SCALE,
-    row.f2,
-    row.f_2,
-    row.F2,
-    row.efscale,
-    row.ef_scale,
-    row.EFSCALE,
-    row.EF_SCALE,
-    row['F scale'],
-    row['F Scale'],
-    row['Magnitude'],
-  ];
+  const safeBeginLatitude = invalidLatLng(beginLatitude) ? null : beginLatitude;
+  const safeBeginLongitude = invalidLatLng(beginLongitude) ? null : beginLongitude;
+  const safeEndLatitude = invalidLatLng(endLatitude) ? null : endLatitude;
+  const safeEndLongitude = invalidLatLng(endLongitude) ? null : endLongitude;
 
-  let magnitude = 0;
-  for (const candidate of magnitudeCandidates) {
-    const parsed = readFloat(candidate, null);
-    if (parsed !== null) {
-      magnitude = parsed;
-      break;
-    }
+  const fallbackLatitude = safeBeginLatitude ?? safeEndLatitude;
+  const fallbackLongitude = safeBeginLongitude ?? safeEndLongitude;
+
+  if (fallbackLatitude === null || fallbackLongitude === null) {
+    return null;
   }
-
-  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
-    const match = row.magnitude.trim().match(/(\d+)/);
-    if (match) {
-      magnitude = Number(match[1]);
-    }
-  }
-
-  const id = firstNonEmpty(
-    row.id,
-    row.reportId,
-    row.report_id,
-    row.REPORT_ID,
-    row['Report ID'],
-    row.event_id,
-    row.EVENT_ID,
-    row.objectid,
-    row.OBJECTID,
-    `${beginDate || 'unknown'}-${beginTime || '00:00'}-${beginLatitude || 0}-${beginLongitude || 0}`
-  );
 
   const normalized = {
     id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
@@ -690,10 +655,10 @@ function normalizeRow(row, source) {
     beginTime: beginTime || '00:00',
     endDate: endDate || beginDate || '0000-00-00',
     endTime: endTime || beginTime || '00:00',
-    beginLatitude,
-    beginLongitude,
-    endLatitude,
-    endLongitude,
+    beginLatitude: safeBeginLatitude ?? fallbackLatitude,
+    beginLongitude: safeBeginLongitude ?? fallbackLongitude,
+    endLatitude: safeEndLatitude ?? fallbackLatitude,
+    endLongitude: safeEndLongitude ?? fallbackLongitude,
     magnitude,
     year: Number(firstNonEmpty(row.year, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
     county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
@@ -706,268 +671,6 @@ function normalizeRow(row, source) {
   }
 
   return normalized;
-}
-
-function parseDatRecords(text) {
-  if (!text || !String(text).trim()) {
-    return [];
-  }
-
-  const rows = [];
-  const lines = String(text).split(/\r?\n/);
-
-  for (const line of lines) {
-    if (!line.trim()) {
-      continue;
-    }
-
-    const parts = line.split(/[\t,|]+/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length < 7) {
-      continue;
-    }
-
-    const record = {
-      reportId: parts[0],
-      beginDate: parts[1],
-      beginTime: parts[2],
-      endDate: parts[3],
-      endTime: parts[4],
-      beginLatitude: Number(parts[5]),
-      beginLongitude: Number(parts[6]),
-      endLatitude: Number(parts[7] || parts[5]),
-      endLongitude: Number(parts[8] || parts[6]),
-      magnitude: Number(parts[9] || 0),
-      source: 'DAT',
-    };
-
-    const normalized = normalizeRow(record, 'DAT');
-    if (normalized) {
-      rows.push(normalized);
-    }
-  }
-
-  return rows;
-}
-
-function getSelectedRecord() {
-  if (!state.selectedId) {
-    return null;
-  }
-
-  return state.filtered.find((row) => row.id === state.selectedId) || state.rows.find((row) => row.id === state.selectedId) || null;
-}
-
-async function fetchNoaaDatForTrack(record) {
-  if (!record) {
-    return [];
-  }
-
-  const candidateDates = new Set();
-  for (const candidate of [record.beginDate, record.endDate, record.date, record.event_date, record.stormdate, record.damage_date]) {
-    const normalized = normalizeDateString(candidate);
-    if (normalized) {
-      candidateDates.add(normalized);
-    }
-  }
-
-  if (!candidateDates.size) {
-    return [];
-  }
-
-  const layerIds = Array.from({ length: 16 }, (_, index) => index);
-  const unique = new Map();
-
-  for (const layerId of layerIds) {
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=json&where=1%3D1&outFields=*&returnGeometry=true&outSR=4326`;
-
-    try {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) {
-        continue;
-      }
-
-      const payload = await response.json();
-      const features = Array.isArray(payload && payload.features) ? payload.features : [];
-
-      for (const feature of features) {
-        if (!feature || !feature.attributes) {
-          continue;
-        }
-
-        const attrs = feature.attributes;
-        const valueSet = [
-          attrs.stormdate,
-          attrs.event_date,
-          attrs.damage_date,
-          attrs.damage_dt,
-          attrs.date,
-          attrs.begin_date,
-          attrs.end_date,
-          attrs.issue_date,
-          attrs.valid,
-          attrs['date'],
-        ];
-
-        const matchesDate = valueSet.some((value) => {
-          const normalized = normalizeDateString(value);
-          return normalized && candidateDates.has(normalized);
-        });
-
-        if (!matchesDate) {
-          continue;
-        }
-
-        const dedupeKey = `${layerId}:${feature.attributes.objectid || feature.attributes.OBJECTID || feature.attributes.event_id || feature.attributes.EVENT_ID || JSON.stringify(feature.geometry)}`;
-        if (!unique.has(dedupeKey)) {
-          unique.set(dedupeKey, feature);
-        }
-      }
-    } catch (error) {
-      console.warn(`DAT layer ${layerId} query failed:`, error);
-    }
-  }
-
-  return Array.from(unique.values());
-}
-
-function renderEditor() {
-  const form = document.getElementById('segmentForm');
-  const empty = document.getElementById('selectionEmpty');
-  const selectionLabel = document.getElementById('selectionLabel');
-  const record = getSelectedRecord();
-
-  if (!record) {
-    if (form) form.classList.add('hidden');
-    if (empty) empty.classList.remove('hidden');
-    if (selectionLabel) selectionLabel.textContent = '';
-    return;
-  }
-
-  if (form) form.classList.remove('hidden');
-  if (empty) empty.classList.add('hidden');
-
-  document.getElementById('reportId').value = record.reportId || record.id || '';
-  document.getElementById('beginDate').value = record.beginDate || '';
-  document.getElementById('beginTime').value = record.beginTime || '';
-  document.getElementById('endDate').value = record.endDate || '';
-  document.getElementById('endTime').value = record.endTime || '';
-  document.getElementById('beginLat').value = record.beginLatitude ?? '';
-  document.getElementById('beginLon').value = record.beginLongitude ?? '';
-  document.getElementById('endLat').value = record.endLatitude ?? '';
-  document.getElementById('endLon').value = record.endLongitude ?? '';
-  document.getElementById('qcNotes').value = record.qcNotes || '';
-
-  if (selectionLabel) {
-    selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
-  }
-}
-
-function toCsv(rows) {
-  if (!Array.isArray(rows) || !rows.length) {
-    return '';
-  }
-
-  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-  const escapeCell = (value) => {
-    const text = value == null ? '' : String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-
-  const lines = [headers.join(',')];
-  for (const row of rows) {
-    lines.push(headers.map((header) => escapeCell(row[header])).join(','));
-  }
-  return lines.join('\n');
-}
-
-async function loadBundledReportParts() {
-  const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
-  const loaded = [];
-
-  for (const fileName of fileNames) {
-    try {
-      const response = await fetch(`./${fileName}`, { cache: 'no-store' });
-      if (!response.ok) continue;
-      const text = await response.text();
-      const parsed = Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
-
-      const rows = parsed.data
-        .map((row) => normalizeRow(row, 'CSV'))
-        .filter(Boolean);
-
-      if (rows.length) loaded.push(...rows);
-    } catch (error) {
-      console.warn(`Skipping bundled CSV ${fileName}:`, error);
-    }
-  }
-
-  return loaded;
-}
-
-async function fetchCsvWithFallback() {
-  const sources = [SPC_URL, FALLBACK_URL];
-
-  for (const source of sources) {
-    try {
-      const response = await fetch(source, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return await response.text();
-    } catch (error) {
-      console.warn(`CSV fetch failed for ${source}`, error);
-    }
-  }
-
-  throw new Error('Could not load SPC CSV from any source.');
-}
-
-async function loadData() {
-  try {
-    let rows = await loadBundledReportParts();
-
-    if (!rows.length) {
-      const csvText = await fetchCsvWithFallback();
-      const parsed = Papa.parse(csvText, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
-      rows = parsed.data.map((row) => normalizeRow(row, 'SPC')).filter(Boolean);
-    }
-
-    state.rows = rows.sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
-    state.spcRows = await loadSpcRows();
-
-    if (!state.rows.length && !state.spcRows.length) {
-      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
-    }
-
-    refreshYearBounds();
-    renderFilteredData({ preserveMapView: true });
-    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
-  } catch (error) {
-    console.error(error);
-    setStatus('Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.', true);
-  }
-}
-
-async function loadSpcRows() {
-  try {
-    const csvText = await fetchCsvWithFallback();
-    const parsed = Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (header) => String(header).trim(),
-    });
-
-    return parsed.data.map((row) => normalizeRow(row, 'SPC')).filter(Boolean);
-  } catch (error) {
-    console.warn('Unable to load SPC layer:', error);
-    return [];
-  }
 }
 
 function renderFilteredData(options = {}) {
@@ -1009,19 +712,16 @@ function renderFilteredData(options = {}) {
   filtered.forEach((row) => {
     const isSpc = row.source === 'SPC';
     const color = magnitudeColor(row.magnitude);
-    const polyline = L.polyline(
-      [
-        [row.beginLatitude, row.beginLongitude],
-        [row.endLatitude, row.endLongitude],
-      ],
-      {
-        color,
-        weight: row.id === state.selectedId ? 6 : 3,
-        opacity: row.id === state.selectedId ? 1 : 0.8,
-        lineCap: 'round',
-        dashArray: isSpc ? '8 8' : null,
-      }
-    );
+    const startPoint = [row.beginLatitude, row.beginLongitude];
+    const endPoint = [row.endLatitude, row.endLongitude];
+    const polylinePoints = [startPoint, endPoint];
+    const polyline = L.polyline(polylinePoints, {
+      color,
+      weight: row.id === state.selectedId ? 6 : 3,
+      opacity: row.id === state.selectedId ? 1 : 0.8,
+      lineCap: 'round',
+      dashArray: isSpc ? '8 8' : null,
+    });
 
     polyline.bindPopup(buildPopup(row));
     polyline.on('click', async (event) => {
@@ -1031,7 +731,7 @@ function renderFilteredData(options = {}) {
     polyline.addTo(state.layerGroup);
     state.polyLines.set(row.id, polyline);
 
-    const startMarker = L.circleMarker([row.beginLatitude, row.beginLongitude], {
+    const startMarker = L.circleMarker(startPoint, {
       radius: 4,
       color: '#f8fafc',
       fillColor: color,
@@ -1045,7 +745,7 @@ function renderFilteredData(options = {}) {
     });
     startMarker.addTo(state.layerGroup);
 
-    bounds.extend([[row.beginLatitude, row.beginLongitude], [row.endLatitude, row.endLongitude]]);
+    bounds.extend([startPoint, endPoint]);
   });
 
   const stats = calculateStats(filtered);
