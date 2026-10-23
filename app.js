@@ -673,261 +673,158 @@ function normalizeRow(row, source) {
   return normalized;
 }
 
-function renderFilteredData(options = {}) {
-  const { preserveMapView = false } = options;
-  const primaryRows = state.rows.filter((row) => {
-    const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-    return rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
-  });
+function renderEditor() {
+  const form = document.getElementById('segmentForm');
+  const empty = document.getElementById('selectionEmpty');
+  const selectionLabel = document.getElementById('selectionLabel');
+  const record = getSelectedRecord();
 
-  let spcRows = [];
-  if (state.spcLayerVisible) {
-    spcRows = state.spcRows.filter((row) => {
-      const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-      const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
-      const multiCountyPass = !state.spcMultiCountyOnly || isMultiCountyRow(row);
-      return inRange && multiCountyPass;
-    });
-  }
-
-  const filtered = [...primaryRows, ...spcRows];
-  state.filtered = filtered;
-  if (state.polyLines) state.polyLines.clear();
-  if (state.layerGroup) state.layerGroup.clearLayers();
-  if (state.datLayerGroup) state.datLayerGroup.clearLayers();
-
-  if (!filtered.length) {
-    const trackCount = document.getElementById('trackCount');
-    const maxMagnitude = document.getElementById('maxMagnitude');
-    const maxLength = document.getElementById('maxLength');
-    if (trackCount) trackCount.textContent = '0';
-    if (maxMagnitude) maxMagnitude.textContent = '0';
-    if (maxLength) maxLength.textContent = '0 mi';
-    setStatus('No tornado tracks match the selected filters.', false);
+  if (!record) {
+    if (form) form.classList.add('hidden');
+    if (empty) empty.classList.remove('hidden');
+    if (selectionLabel) selectionLabel.textContent = '';
     return;
   }
 
-  let bounds = L.latLngBounds([]);
+  if (form) form.classList.remove('hidden');
+  if (empty) empty.classList.add('hidden');
 
-  filtered.forEach((row) => {
-    const isSpc = row.source === 'SPC';
-    const color = magnitudeColor(row.magnitude);
-    const startPoint = [row.beginLatitude, row.beginLongitude];
-    const endPoint = [row.endLatitude, row.endLongitude];
-    const polylinePoints = [startPoint, endPoint];
-    const polyline = L.polyline(polylinePoints, {
-      color,
-      weight: row.id === state.selectedId ? 6 : 3,
-      opacity: row.id === state.selectedId ? 1 : 0.8,
-      lineCap: 'round',
-      dashArray: isSpc ? '8 8' : null,
-    });
+  const reportIdField = document.getElementById('reportId');
+  if (reportIdField) reportIdField.value = record.reportId || record.id || '';
+  document.getElementById('beginDate').value = record.beginDate || '';
+  document.getElementById('beginTime').value = record.beginTime || '';
+  document.getElementById('endDate').value = record.endDate || '';
+  document.getElementById('endTime').value = record.endTime || '';
+  document.getElementById('beginLat').value = record.beginLatitude ?? '';
+  document.getElementById('beginLon').value = record.beginLongitude ?? '';
+  document.getElementById('endLat').value = record.endLatitude ?? '';
+  document.getElementById('endLon').value = record.endLongitude ?? '';
+  document.getElementById('qcNotes').value = record.qcNotes || '';
 
-    polyline.bindPopup(buildPopup(row));
-    polyline.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    polyline.addTo(state.layerGroup);
-    state.polyLines.set(row.id, polyline);
-
-    const startMarker = L.circleMarker(startPoint, {
-      radius: 4,
-      color: '#f8fafc',
-      fillColor: color,
-      fillOpacity: 1,
-      weight: 1,
-    });
-    startMarker.bindPopup(buildPopup(row));
-    startMarker.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    startMarker.addTo(state.layerGroup);
-
-    bounds.extend([startPoint, endPoint]);
-  });
-
-  const stats = calculateStats(filtered);
-  const trackCount = document.getElementById('trackCount');
-  const maxMagnitude = document.getElementById('maxMagnitude');
-  const maxLength = document.getElementById('maxLength');
-  if (trackCount) trackCount.textContent = stats.count.toLocaleString();
-  if (maxMagnitude) maxMagnitude.textContent = String(stats.maxMagnitude);
-  if (maxLength) maxLength.textContent = `${stats.maxLength.toFixed(0)} mi`;
-
-  state.allBounds = bounds;
-  if (bounds.isValid() && !preserveMapView) {
-    state.map.fitBounds(bounds, { padding: [30, 30] });
+  if (selectionLabel) {
+    selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
   }
-
-  renderEditor();
-  setStatus(`Showing ${filtered.length.toLocaleString()} tornado tracks for ${state.yearMin} to ${state.yearMax}.`, false);
 }
 
-function isMultiCountyRow(row) {
-  if (!row) return false;
+function toCsv(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '';
+  }
 
-  const candidateValues = [
-    row.f2,
-    row.f_2,
-    row.multiCounty,
-    row.multi_county,
-    row.multiCounties,
-    row.multi_counties,
-    row.multiSegment,
-    row.multi_segment,
-    row.multiCountyCount,
-    row.countyCount,
-  ];
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const escapeCell = (value) => {
+    const text = value == null ? '' : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
 
-  for (const value of candidateValues) {
-    const numeric = Number.parseFloat(String(value ?? '').replace(/,/g, '').trim());
-    if (Number.isFinite(numeric) && numeric !== 0) {
-      return true;
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    lines.push(headers.map((header) => escapeCell(row[header])).join(','));
+  }
+  return lines.join('\n');
+}
+
+async function loadBundledReportParts() {
+  const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
+  const loaded = [];
+
+  for (const fileName of fileNames) {
+    try {
+      const response = await fetch(`./${fileName}`, { cache: 'no-store' });
+      if (!response.ok) {
+        continue;
+      }
+
+      const text = await response.text();
+      const parsed = Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      const rows = parsed.data
+        .map((row) => normalizeRow(row, 'CSV'))
+        .filter(Boolean);
+
+      if (rows.length) {
+        loaded.push(...rows);
+      }
+    } catch (error) {
+      console.warn(`Skipping bundled CSV ${fileName}:`, error);
     }
   }
 
-  const countyText = String(row.county || row.counties || row.state || '').trim();
-  return /\band\b|\b&\b|\,/.test(countyText) && countyText.length > 3;
+  return loaded;
 }
 
-async function handleTrackSelection(record, preserveMapView = true) {
-  if (!record) return;
+async function fetchCsvWithFallback() {
+  const sources = [SPC_URL, FALLBACK_URL];
 
-  state.selectedId = record.id;
-  renderEditor();
-  renderFilteredData({ preserveMapView: true });
-
-  const matches = await fetchNoaaDatForTrack(record);
-  state.noaaDatMatches = matches || [];
-  renderDatLayer(matches || []);
-
-  const dateLabel = record.beginDate || record.endDate || 'this date';
-  if (matches && matches.length) {
-    setStatus(`Selected ${record.reportId || record.id}. NOAA DAT found ${matches.length} feature(s) on ${dateLabel}.`, false);
-    return;
+  for (const source of sources) {
+    try {
+      const response = await fetch(source, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.text();
+    } catch (error) {
+      console.warn(`CSV fetch failed for ${source}`, error);
+    }
   }
 
-  setStatus(`Selected ${record.reportId || record.id}. NOAA DAT search completed for ${dateLabel}.`, false);
+  throw new Error('Could not load SPC CSV from any source.');
 }
 
-function clearDatLayer() {
-  if (state.datLayerGroup) state.datLayerGroup.clearLayers();
-  state.noaaDatMatches = [];
+async function loadData() {
+  try {
+    let rows = await loadBundledReportParts();
+
+    if (!rows.length) {
+      const csvText = await fetchCsvWithFallback();
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      rows = parsed.data
+        .map((row) => normalizeRow(row, 'SPC'))
+        .filter(Boolean);
+    }
+
+    state.rows = rows.sort((a, b) => (a.beginDate || '').localeCompare(b.beginDate || '') || (a.beginTime || '').localeCompare(b.beginTime || ''));
+    state.spcRows = await loadSpcRows();
+
+    if (!state.rows.length && !state.spcRows.length) {
+      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
+    }
+
+    refreshYearBounds();
+    renderFilteredData({ preserveMapView: true });
+    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(
+      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
+      true
+    );
+  }
 }
 
-function renderDatLayer(features) {
-  clearDatLayer();
-  if (!features || !features.length || !state.datLayerGroup) return;
+async function loadSpcRows() {
+  try {
+    const csvText = await fetchCsvWithFallback();
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => String(header).trim(),
+    });
 
-  const layers = features
-    .map((feature) => {
-      if (!feature || !feature.geometry) return null;
-
-      const geometry = feature.geometry;
-      const attrs = feature.attributes || {};
-      const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
-      const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
-
-      if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
-        const [lon, lat] = geometry.coordinates;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 6,
-          color: '#ffffff',
-          weight: 1,
-          fillColor: datColorByEf(efValue),
-          fillOpacity: 1,
-        });
-        marker.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-            <span>Point</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
-          </div>
-        `);
-        return marker;
-      }
-
-      if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
-        const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
-        const line = L.polyline(latLngs, {
-          color: datColorByEf(efValue),
-          weight: 3,
-          opacity: 0.9,
-        });
-        line.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
-        return line;
-      }
-
-      if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
-        const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
-        const polygon = L.polygon(latLngs, {
-          color: datColorByEf(efValue),
-          fillColor: datColorByEf(efValue),
-          fillOpacity: 0.3,
-          weight: 2,
-        });
-        polygon.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
-        return polygon;
-      }
-
-      return null;
-    })
-    .filter(Boolean);
-
-  layers.forEach((layer) => layer.addTo(state.datLayerGroup));
-}
-
-function datColorByEf(value) {
-  const text = String(value || '').trim().toUpperCase();
-  const palette = {
-    EF5: '#9d174d',
-    EF4: '#dc2626',
-    EF3: '#f59e0b',
-    'EF3+': '#f59e0b',
-    EF2: '#facc15',
-    EF1: '#4ade80',
-    EF0: '#22d3ee',
-    EFU: '#94a3b8',
-    TSTM: '#a78bfa',
-    'TSTM/WIND': '#a78bfa',
-    WIND: '#a78bfa',
-    TROPICAL: '#f97316',
-    'N/A': '#cbd5e1',
-    UNKNOWN: '#cbd5e1',
-    '<NULL>': '#cbd5e1',
-  };
-  return palette[text] || '#60a5fa';
-}
-
-function coordinatesToLatLngs(coordinates) {
-  if (!Array.isArray(coordinates)) return [];
-  return coordinates
-    .map((segment) => Array.isArray(segment) && segment.length >= 2 ? [segment[1], segment[0]] : null)
-    .filter(Boolean);
-}
-
-function polygonCoordinatesToLatLngs(coordinates) {
-  if (!Array.isArray(coordinates)) return [];
-  return coordinates.map((ring) => {
-    if (!Array.isArray(ring)) return [];
-    return ring.map((point) => Array.isArray(point) && point.length >= 2 ? [point[1], point[0]] : null).filter(Boolean);
-  }).filter((ring) => ring.length);
+    return parsed.data
+      .map((row) => normalizeRow(row, 'SPC'))
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('Unable to load SPC layer:', error);
+    return [];
+  }
 }
