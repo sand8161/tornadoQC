@@ -23,28 +23,6 @@ const state = {
 
 document.addEventListener('DOMContentLoaded', init);
 
-async function init() {
-  const mapElement = document.getElementById('map');
-  state.map = L.map(mapElement, {
-    zoomControl: true,
-    attributionControl: true,
-    preferCanvas: true,
-  }).setView([38.5, -98.35], 4);
-
-  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
-  });
-  tiles.addTo(state.map);
-
-  state.layerGroup = L.layerGroup().addTo(state.map);
-  state.datLayerGroup = L.layerGroup().addTo(state.map);
-  bindControls();
-  updateSpcControls();
-  applyTheme('dark');
-  await loadData();
-}
-
 async function loadData() {
   try {
     let rows = await loadBundledReportParts();
@@ -81,6 +59,28 @@ async function loadData() {
       true
     );
   }
+}
+
+async function init() {
+  const mapElement = document.getElementById('map');
+  state.map = L.map(mapElement, {
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true,
+  }).setView([38.5, -98.35], 4);
+
+  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  });
+  tiles.addTo(state.map);
+
+  state.layerGroup = L.layerGroup().addTo(state.map);
+  state.datLayerGroup = L.layerGroup().addTo(state.map);
+  bindControls();
+  updateSpcControls();
+  applyTheme('dark');
+  await loadData();
 }
 
 function bindControls() {
