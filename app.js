@@ -24,7 +24,15 @@ const state = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function loadBundledReportParts() {
-  const fileNames = Array.from({ length: 7 }, (_, index) => `1950-2026_Tornado_Reports_part${index + 1}.csv`);
+  const fileNames = [
+    '1950-2026_Tornado_Reports_part1_2.csv',
+    '1950-2026_Tornado_Reports_part2.csv',
+    '1950-2026_Tornado_Reports_part3.csv',
+    '1950-2026_Tornado_Reports_part4.csv',
+    '1950-2026_Tornado_Reports_part5.csv',
+    '1950-2026_Tornado_Reports_part6.csv',
+    '1950-2026_Tornado_Reports_part7.csv'
+  ];
   const loaded = [];
 
   for (const fileName of fileNames) {
