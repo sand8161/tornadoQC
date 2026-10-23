@@ -25,13 +25,7 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function loadBundledReportParts() {
   const fileNames = [
-    '1950-2026_Tornado_Reports_part1.csv',
-    '1950-2026_Tornado_Reports_part2.csv',
-    '1950-2026_Tornado_Reports_part3.csv',
-    '1950-2026_Tornado_Reports_part4.csv',
-    '1950-2026_Tornado_Reports_part5.csv',
-    '1950-2026_Tornado_Reports_part6.csv',
-    '1950-2026_Tornado_Reports_part7.csv'
+    '1950-2026_Tornado_Reports_part1_2.csv'
   ];
   
   const loaded = [];
@@ -174,8 +168,8 @@ function bindControls() {
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
-if (yearMinInput && yearMaxInput) {
-    yearMinInput.addEventListener('change', () => { // Changed from 'input' to 'change'
+  if (yearMinInput && yearMaxInput) {
+    yearMinInput.addEventListener('change', () => {
       const parsed = Number(yearMinInput.value);
       if (parsed > Number(yearMaxInput.value)) {
         yearMaxInput.value = parsed;
@@ -185,7 +179,7 @@ if (yearMinInput && yearMaxInput) {
       renderFilteredData({ preserveMapView: true });
     });
 
-    yearMaxInput.addEventListener('change', () => { // Changed from 'input' to 'change'
+    yearMaxInput.addEventListener('change', () => {
       const parsed = Number(yearMaxInput.value);
       if (parsed < Number(yearMinInput.value)) {
         yearMinInput.value = parsed;
@@ -197,7 +191,7 @@ if (yearMinInput && yearMaxInput) {
   }
 
   if (magnitudeInput) {
-    magnitudeInput.addEventListener('change', () => { // Changed from 'input' to 'change'
+    magnitudeInput.addEventListener('change', () => {
       state.minMagnitude = Number(magnitudeInput.value);
       updateFilterReadouts();
       renderFilteredData();
@@ -972,15 +966,30 @@ function buildPopup(row) {
   const county = firstNonEmpty(row.county, row.counties, row.state, 'N/A');
   const start = firstNonEmpty(row.beginDate, row.endDate, 'N/A');
 
-  return `
+  let html = `
     <div class="popup-title">${reportId}</div>
     <div class="popup-grid">
       <span>Magnitude</span><strong>${magnitude}</strong>
       <span>Date</span><strong>${start}</strong>
       <span>County</span><strong>${county}</strong>
       <span>Source</span><strong>${row.source || 'SPC'}</strong>
-    </div>
   `;
+
+  if (row.lengthMiles) html += `<span>Length</span><strong>${row.lengthMiles} mi</strong>`;
+  if (row.widthYards) html += `<span>Width</span><strong>${row.widthYards} yd</strong>`;
+  if (row.injuries > 0 || row.deaths > 0) {
+    html += `<span>Casualties</span><strong>${row.deaths} dead, ${row.injuries} inj</strong>`;
+  }
+  
+  html += `</div>`;
+
+  if (row.details) {
+    html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.8rem; color: #cbd5e1; max-height: 120px; overflow-y: auto;">
+      ${row.details}
+    </div>`;
+  }
+
+  return html;
 }
 
 function calculateStats(filtered) {
@@ -1089,12 +1098,10 @@ function normalizeRow(row, source) {
 
   const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
 
-  // Only reject the row if the BEGIN coordinates are invalid
   if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude)) {
     return null;
   }
 
-  // If END coordinates are 0 or missing (brief touchdowns), default them to the BEGIN coordinates
   if (invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
     endLatitude = beginLatitude;
     endLongitude = beginLongitude;
@@ -1136,7 +1143,9 @@ function normalizeRow(row, source) {
   }
 
   const id = firstNonEmpty(
-    row.stormEventsReportID,
+    row.stormEventsReportID, 
+    row.StormEventsReportID,
+    row.oneTorID,
     row.id,
     row.reportId,
     row.report_id,
@@ -1152,7 +1161,7 @@ function normalizeRow(row, source) {
 
   const normalized = {
     id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
-    reportId: String(firstNonEmpty(row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
+    reportId: String(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
     source,
     beginDate: beginDate || endDate || '0000-00-00',
     beginTime: beginTime || '00:00',
@@ -1166,7 +1175,11 @@ function normalizeRow(row, source) {
     year: Number(firstNonEmpty(row.year, row.yr, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
     county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
     state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
-    lengthMiles: readFloat(firstNonEmpty(row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
+    lengthMiles: readFloat(firstNonEmpty(row.tornadoLength, row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
+    widthYards: readFloat(firstNonEmpty(row.tornadoWidth, 0), 0),
+    injuries: readFloat(row.injuriesDirect, 0),
+    deaths: readFloat(row.deathsDirect, 0),
+    details: firstNonEmpty(row.details, row.overview, '')
   };
 
   if (normalized.beginDate === '0000-00-00' || !normalized.beginLatitude || !normalized.beginLongitude) {
@@ -1242,11 +1255,19 @@ async function fetchNoaaDatForTrack(record) {
     return [];
   }
 
-  const layerIds = Array.from({ length: 16 }, (_, index) => index);
+const layerIds = Array.from({ length: 16 }, (_, index) => index);
   const unique = new Map();
 
+  // Create a 0.5 degree (~30 mile) bounding box around the tornado path
+  const xMin = Math.min(record.beginLongitude, record.endLongitude) - 0.5;
+  const yMin = Math.min(record.beginLatitude, record.endLatitude) - 0.5;
+  const xMax = Math.max(record.beginLongitude, record.endLongitude) + 0.5;
+  const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
+  const bbox = `${xMin},${yMin},${xMax},${yMax}`;
+
   for (const layerId of layerIds) {
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=json&where=1%3D1&outFields=*&returnGeometry=true&outSR=4326`;
+    // Append the bounding box and spatial relation to the ArcGIS query
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=json&where=1%3D1&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;
 
     try {
       const response = await fetch(url, { cache: 'no-store' });
