@@ -19,6 +19,9 @@ const state = {
   noaaDatMatches: [],
   spcLayerVisible: true,
   spcMultiCountyOnly: false,
+  datPointsVisible: true,
+  datPathsVisible: true,
+  datPolygonsVisible: true,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -152,6 +155,16 @@ async function init() {
   });
   tiles.addTo(state.map);
 
+  // Custom Panes for strict DAT layering
+  state.map.createPane('datPolygonsPane');
+  state.map.getPane('datPolygonsPane').style.zIndex = 390;
+  
+  state.map.createPane('datLinesPane');
+  state.map.getPane('datLinesPane').style.zIndex = 400;
+  
+  state.map.createPane('datPointsPane');
+  state.map.getPane('datPointsPane').style.zIndex = 410;
+
   state.layerGroup = L.layerGroup().addTo(state.map);
   state.datLayerGroup = L.layerGroup().addTo(state.map);
   bindControls();
@@ -219,6 +232,21 @@ function bindControls() {
       renderFilteredData({ preserveMapView: true });
     });
   }
+  
+  // DAT Toggles
+  ['datPolyToggle', 'datPathToggle', 'datPointToggle'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        if (id === 'datPolyToggle') state.datPolygonsVisible = !state.datPolygonsVisible;
+        if (id === 'datPathToggle') state.datPathsVisible = !state.datPathsVisible;
+        if (id === 'datPointToggle') state.datPointsVisible = !state.datPointsVisible;
+        
+        btn.classList.toggle('active');
+        renderDatLayer(state.noaaDatMatches);
+      });
+    }
+  });
 
   if (resetButton) {
     resetButton.addEventListener('click', () => {
@@ -583,7 +611,6 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   const dateLabel = record.beginDate || record.endDate || 'this date';
 
-  // Inject spinner animation CSS if it isn't already in the document
   if (!document.getElementById('spinner-style')) {
     const style = document.createElement('style');
     style.id = 'spinner-style';
@@ -591,7 +618,6 @@ async function handleTrackSelection(record, preserveMapView = true) {
     document.head.appendChild(style);
   }
 
-  // Set the loading status with a CSS spinner
   setStatus(`
     <span style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation: dat-spin 0.75s linear infinite; vertical-align: text-bottom; margin-right: 6px;"></span>
     Searching NOAA DAT for ${dateLabel}...
@@ -611,7 +637,6 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
 function clearDatLayer() {
   if (state.datLayerGroup) state.datLayerGroup.clearLayers();
-  state.noaaDatMatches = [];
 }
 
 function renderDatLayer(features) {
@@ -626,62 +651,71 @@ function renderDatLayer(features) {
       const attrs = feature.properties || feature.attributes || {};
       const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
       const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
+      
+      const popupHtml = `
+        <div class="popup-title">NOAA DAT</div>
+        <div class="popup-grid">
+          <span>Event</span><strong>${label}</strong>
+          <span>EF/Type</span><strong>${efValue}</strong>
+          <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
+        </div>
+      `;
 
       if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+        if (!state.datPointsVisible) return null;
+
         const [lon, lat] = geometry.coordinates;
-        const marker = L.circleMarker([lat, lon], {
-          radius: 6,
-          color: '#ffffff',
-          weight: 1,
-          fillColor: datColorByEf(efValue),
-          fillOpacity: 1,
-        });
-        marker.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-            <span>Point</span><strong>${lat.toFixed(3)}, ${lon.toFixed(3)}</strong>
-          </div>
-        `);
-        return marker;
+        const color = datColorByEf(efValue);
+        const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
+
+        if (isNonTornado) {
+          const marker = L.circleMarker([lat, lon], {
+            pane: 'datPointsPane',
+            radius: 5,
+            color: '#ffffff',
+            weight: 1,
+            fillColor: color,
+            fillOpacity: 1,
+          });
+          marker.bindPopup(popupHtml);
+          return marker;
+        } else {
+          const svgIcon = L.divIcon({
+            className: 'dat-point-icon',
+            html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          });
+          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon });
+          marker.bindPopup(popupHtml);
+          return marker;
+        }
       }
 
       if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
+        if (!state.datPathsVisible) return null;
         const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
         const line = L.polyline(latLngs, {
+          pane: 'datLinesPane',
           color: datColorByEf(efValue),
           weight: 3,
           opacity: 0.9,
         });
-        line.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
+        line.bindPopup(popupHtml);
         return line;
       }
 
       if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+        if (!state.datPolygonsVisible) return null;
         const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
         const polygon = L.polygon(latLngs, {
+          pane: 'datPolygonsPane',
           color: datColorByEf(efValue),
           fillColor: datColorByEf(efValue),
-          fillOpacity: 0.3,
+          fillOpacity: 0.35,
           weight: 2,
         });
-        polygon.bindPopup(`
-          <div class="popup-title">NOAA DAT</div>
-          <div class="popup-grid">
-            <span>Event</span><strong>${label}</strong>
-            <span>EF</span><strong>${firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, 'N/A')}</strong>
-            <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-          </div>
-        `);
+        polygon.bindPopup(popupHtml);
         return polygon;
       }
 
@@ -694,24 +728,22 @@ function renderDatLayer(features) {
 
 function datColorByEf(value) {
   const text = String(value || '').trim().toUpperCase();
+  
+  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6';
+  if (text.includes('TROPICAL')) return '#10b981';
+  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e';
+
   const palette = {
-    EF5: '#9d174d',
-    EF4: '#dc2626',
-    EF3: '#f59e0b',
+    'EF5': '#9d174d',
+    'EF4': '#dc2626',
+    'EF3': '#f59e0b',
     'EF3+': '#f59e0b',
-    EF2: '#facc15',
-    EF1: '#4ade80',
-    EF0: '#22d3ee',
-    EFU: '#94a3b8',
-    TSTM: '#a78bfa',
-    'TSTM/WIND': '#a78bfa',
-    WIND: '#a78bfa',
-    TROPICAL: '#f97316',
-    'N/A': '#cbd5e1',
-    UNKNOWN: '#cbd5e1',
-    '<NULL>': '#cbd5e1',
+    'EF2': '#facc15',
+    'EF1': '#4ade80',
+    'EF0': '#22d3ee',
+    'EFU': '#64748b',
   };
-  return palette[text] || '#60a5fa';
+  return palette[text] || '#a8a29e';
 }
 
 function coordinatesToLatLngs(coordinates) {
@@ -796,7 +828,6 @@ function setStatus(message, isError = false) {
     return;
   }
 
-  // Changed from textContent to innerHTML to allow the spinner HTML to render
   statusEl.innerHTML = message || '';
   statusEl.classList.toggle('error', Boolean(isError));
 }
@@ -842,17 +873,13 @@ function normalizeDateString(value) {
     return null;
   }
 
-  // --- ADD THIS BLOCK ---
-  // Handle ArcGIS epoch timestamps (milliseconds since 1970)
   const numValue = Number(value);
   if (!isNaN(numValue) && numValue > 10000000000) {
     const dt = new Date(numValue);
     if (!isNaN(dt.getTime())) {
-      // Returns format like "2024-05-05"
       return dt.toISOString().split('T')[0];
     }
   }
-  // ----------------------
 
   const text = String(value).trim();
   if (!text || text === 'null' || text === 'NaN') {
@@ -943,335 +970,6 @@ function getYearFromDate(dateValue) {
   return match ? Number(match[1]) : null;
 }
 
-function refreshYearBounds() {
-  const rows = [...state.rows, ...state.spcRows];
-  if (!rows.length) {
-    state.yearMin = 1950;
-    state.yearMax = 2025;
-    return;
-  }
-
-  const years = rows
-    .map((row) => Number(row.year || getYearFromDate(row.beginDate) || getYearFromDate(row.endDate) || 0))
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .sort((a, b) => a - b);
-
-  if (years.length) {
-    state.yearMin = years[0];
-    state.yearMax = years[years.length - 1];
-  }
-
-  const yearMinInput = document.getElementById('yearMin');
-  const yearMaxInput = document.getElementById('yearMax');
-  
-  if (yearMinInput) {
-    yearMinInput.min = String(state.yearMin);
-    yearMinInput.max = String(state.yearMax);
-    yearMinInput.value = String(state.yearMin);
-  }
-  if (yearMaxInput) {
-    yearMaxInput.min = String(state.yearMin);
-    yearMaxInput.max = String(state.yearMax);
-    yearMaxInput.value = String(state.yearMax);
-  }
-
-  state.yearMin = Number(yearMinInput?.value || state.yearMin);
-  state.yearMax = Number(yearMaxInput?.value || state.yearMax);
-  updateFilterReadouts();
-}
-
-function magnitudeColor(value) {
-  const magnitude = Number(value);
-  if (!Number.isFinite(magnitude)) {
-    return '#94a3b8';
-  }
-
-  if (magnitude >= 5) return '#7f1d1d';
-  if (magnitude >= 4) return '#b91c1c';
-  if (magnitude >= 3) return '#f59e0b';
-  if (magnitude >= 2) return '#facc15';
-  if (magnitude >= 1) return '#4ade80';
-  return '#22d3ee';
-}
-
-function buildPopup(row) {
-  const reportId = row.reportId || row.id || 'N/A';
-  const magnitude = row.magnitude ?? row.f2 ?? row.f_2 ?? 'N/A';
-  const county = firstNonEmpty(row.county, row.counties, row.state, 'N/A');
-  const start = firstNonEmpty(row.beginDate, row.endDate, 'N/A');
-
-  let html = `
-    <div class="popup-title">${reportId}</div>
-    <div class="popup-grid">
-      <span>Magnitude</span><strong>${magnitude}</strong>
-      <span>Date</span><strong>${start}</strong>
-      <span>County</span><strong>${county}</strong>
-      <span>Source</span><strong>${row.source || 'SPC'}</strong>
-  `;
-
-  if (row.lengthMiles) html += `<span>Length</span><strong>${row.lengthMiles} mi</strong>`;
-  if (row.widthYards) html += `<span>Width</span><strong>${row.widthYards} yd</strong>`;
-  if (row.injuries > 0 || row.deaths > 0) {
-    html += `<span>Casualties</span><strong>${row.deaths} dead, ${row.injuries} inj</strong>`;
-  }
-  
-  html += `</div>`;
-
-  if (row.details) {
-    html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.8rem; color: #cbd5e1; max-height: 120px; overflow-y: auto;">
-      ${row.details}
-    </div>`;
-  }
-
-  return html;
-}
-
-function calculateStats(filtered) {
-  const maxMagnitude = filtered.reduce((max, row) => Math.max(max, Number(row.magnitude) || 0), 0);
-  const maxLength = filtered.reduce((max, row) => {
-    const length = Number(row.lengthMiles || row.length_mi || row.length_miles || 0);
-    return Math.max(max, Number.isFinite(length) ? length : 0);
-  }, 0);
-
-  return {
-    count: filtered.length,
-    maxMagnitude,
-    maxLength,
-  };
-}
-
-function normalizeRow(row, source) {
-  if (!row || typeof row !== 'object') {
-    return null;
-  }
-
-  const beginDate = normalizeDateString(firstNonEmpty(
-    row.beginDate,
-    row.begin_date,
-    row.BEGIN_DATE,
-    row.date,
-    row.DATE,
-    row.eventDate,
-    row.event_date,
-    row.event_date_utc,
-    row.begin_ymd,
-    row.BEGIN_YMD,
-    row['BEGIN DATE'],
-    row['BEGIN DATE (UTC)'],
-    row['Date'],
-    row.beginTimestamp
-  ));
-
-  const endDate = normalizeDateString(firstNonEmpty(
-    row.endDate,
-    row.end_date,
-    row.END_DATE,
-    row.end_ymd,
-    row.END_YMD,
-    row['END DATE'],
-    row.endTimestamp
-  ));
-
-  const beginTime = normalizeTimeString(firstNonEmpty(
-    row.beginTime,
-    row.begin_time,
-    row.BEGIN_TIME,
-    row['BEGIN TIME'],
-    row.time,
-    row.TIME,
-    row['Time'],
-    row.beginTimestamp
-  ));
-
-  const endTime = normalizeTimeString(firstNonEmpty(
-    row.endTime,
-    row.end_time,
-    row.END_TIME,
-    row['END TIME']
-  ));
-
-  const beginLatitude = readFloat(firstNonEmpty(
-    row.beginLatitude,
-    row.begin_lat,
-    row.BEGIN_LAT,
-    row.BEGINLAT,
-    row.lat,
-    row.latitude,
-    row['Begin Lat'],
-    row.slat
-  ));
-
-  const beginLongitude = readFloat(firstNonEmpty(
-    row.beginLongitude,
-    row.begin_lon,
-    row.BEGIN_LON,
-    row.BEGINLON,
-    row.lon,
-    row.longitude,
-    row['Begin Lon'],
-    row.slon
-  ));
-
-  let endLatitude = readFloat(firstNonEmpty(
-    row.endLatitude,
-    row.end_lat,
-    row.END_LAT,
-    row.ENDLAT,
-    row['End Lat'],
-    row.elat
-  ));
-
-  let endLongitude = readFloat(firstNonEmpty(
-    row.endLongitude,
-    row.end_lon,
-    row.END_LON,
-    row.ENDLON,
-    row['End Lon'],
-    row.elon
-  ));
-
-  const invalidLatLng = (value) => value === null || value === undefined || value === 0 || Math.abs(value) >= 99900;
-
-  if (invalidLatLng(beginLatitude) || invalidLatLng(beginLongitude)) {
-    return null;
-  }
-
-  if (invalidLatLng(endLatitude) || invalidLatLng(endLongitude)) {
-    endLatitude = beginLatitude;
-    endLongitude = beginLongitude;
-  }
-
-  const magnitudeCandidates = [
-    row.magnitude,
-    row.mag,
-    row.MAG,
-    row.fscale,
-    row.f_scale,
-    row.F_SCALE,
-    row.f2,
-    row.f_2,
-    row.F2,
-    row.efscale,
-    row.ef_scale,
-    row.EFSCALE,
-    row.EF_SCALE,
-    row['F scale'],
-    row['F Scale'],
-    row['Magnitude'],
-  ];
-
-  let magnitude = 0;
-  for (const candidate of magnitudeCandidates) {
-    const parsed = readFloat(candidate, null);
-    if (parsed !== null) {
-      magnitude = parsed;
-      break;
-    }
-  }
-
-  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
-    const match = row.magnitude.trim().match(/(\d+)/);
-    if (match) {
-      magnitude = Number(match[1]);
-    }
-  }
-
-  const id = firstNonEmpty(
-    row.stormEventsReportID, 
-    row.StormEventsReportID,
-    row.oneTorID,
-    row.id,
-    row.reportId,
-    row.report_id,
-    row.REPORT_ID,
-    row['Report ID'],
-    row.event_id,
-    row.EVENT_ID,
-    row.objectid,
-    row.OBJECTID,
-    row.om,
-    `${beginDate || 'unknown'}-${beginTime || '00:00'}-${beginLatitude || 0}-${beginLongitude || 0}`
-  );
-
-  const normalized = {
-    id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
-    reportId: String(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
-    source,
-    beginDate: beginDate || endDate || '0000-00-00',
-    beginTime: beginTime || '00:00',
-    endDate: endDate || beginDate || '0000-00-00',
-    endTime: endTime || beginTime || '00:00',
-    beginLatitude,
-    beginLongitude,
-    endLatitude,
-    endLongitude,
-    magnitude,
-    year: Number(firstNonEmpty(row.year, row.yr, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
-    county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
-    state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
-    lengthMiles: readFloat(firstNonEmpty(row.tornadoLength, row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
-    widthYards: readFloat(firstNonEmpty(row.tornadoWidth, 0), 0),
-    injuries: readFloat(row.injuriesDirect, 0),
-    deaths: readFloat(row.deathsDirect, 0),
-    details: firstNonEmpty(row.details, row.overview, '')
-  };
-
-  if (normalized.beginDate === '0000-00-00' || !normalized.beginLatitude || !normalized.beginLongitude) {
-    return null;
-  }
-
-  return normalized;
-}
-
-function parseDatRecords(text) {
-  if (!text || !String(text).trim()) {
-    return [];
-  }
-
-  const rows = [];
-  const lines = String(text).split(/\r?\n/);
-
-  for (const line of lines) {
-    if (!line.trim()) {
-      continue;
-    }
-
-    const parts = line.split(/[\t,|]+/).map((part) => part.trim()).filter(Boolean);
-    if (parts.length < 7) {
-      continue;
-    }
-
-    const record = {
-      reportId: parts[0],
-      beginDate: parts[1],
-      beginTime: parts[2],
-      endDate: parts[3],
-      endTime: parts[4],
-      beginLatitude: Number(parts[5]),
-      beginLongitude: Number(parts[6]),
-      endLatitude: Number(parts[7] || parts[5]),
-      endLongitude: Number(parts[8] || parts[6]),
-      magnitude: Number(parts[9] || 0),
-      source: 'DAT',
-    };
-
-    const normalized = normalizeRow(record, 'DAT');
-    if (normalized) {
-      rows.push(normalized);
-    }
-  }
-
-  return rows;
-}
-
-function getSelectedRecord() {
-  if (!state.selectedId) {
-    return null;
-  }
-
-  return state.filtered.find((row) => row.id === state.selectedId) || state.rows.find((row) => row.id === state.selectedId) || null;
-}
-
 async function fetchNoaaDatForTrack(record) {
   if (!record) {
     return [];
@@ -1298,27 +996,20 @@ async function fetchNoaaDatForTrack(record) {
   const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
   const bbox = `${xMin},${yMin},${xMax},${yMax}`;
 
-  // Extract the target date (e.g. "2013-05-20")
   const targetDate = normalizeDateString(firstNonEmpty(record.beginDate, record.endDate));
   
-  // Build a strict date filter for the ArcGIS server
   let whereClause = '1%3D1';
   if (targetDate) {
     const dt = new Date(targetDate);
-    
-    // We add +12 hours so the date represents Noon UTC, preventing time zone shifts
     const safeDate = new Date(dt.getTime() + (12 * 60 * 60 * 1000)); 
-    
     const start = new Date(safeDate.getTime() - 86400000).toISOString().split('T')[0];
     const end = new Date(safeDate.getTime() + 86400000).toISOString().split('T')[0];
-    
-    // Explicitly use the timestamp keyword matching the Python script format
     whereClause = encodeURIComponent(`stormdate >= timestamp '${start} 00:00:00' AND stormdate <= timestamp '${end} 23:59:59'`);
   }
 
   for (const layerId of layerIds) {
-    // Send both the spatial box AND the date filter to the server
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=${whereClause}&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;    try {
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=${whereClause}&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;
+    try {
       const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) {
         continue;
@@ -1328,7 +1019,6 @@ async function fetchNoaaDatForTrack(record) {
       const features = Array.isArray(payload && payload.features) ? payload.features : [];
 
       for (const feature of features) {
-        // Look for .properties (GeoJSON) instead of .attributes
         if (!feature || (!feature.properties && !feature.attributes)) {
           continue;
         }
