@@ -1014,6 +1014,11 @@ function normalizeDateString(value) {
     return `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`;
   }
 
+  if (/^\d{8}-\d{4}$/.test(cleaned) || /^\d{12}$/.test(cleaned)) {
+    const compact = cleaned.replace(/[-:]/g, '').slice(0, 12);
+    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+  }
+
   const parsed = new Date(cleaned);
   if (!Number.isNaN(parsed.getTime())) {
     return parsed.toISOString().slice(0, 10);
@@ -1034,6 +1039,11 @@ function normalizeTimeString(value) {
   }
 
   const cleaned = String(text).trim();
+  const timestampMatch = cleaned.match(/^(\d{8})[-](\d{4})$/);
+  if (timestampMatch) {
+    return `${timestampMatch[2].slice(0, 2)}:${timestampMatch[2].slice(2, 4)}`;
+  }
+
   const matches = cleaned.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (matches) {
     return `${String(matches[1]).padStart(2, '0')}:${String(matches[2]).padStart(2, '0')}`;
