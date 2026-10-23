@@ -57,30 +57,34 @@ function bindControls() {
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
-  yearMinInput.addEventListener('input', () => {
-    const parsed = Number(yearMinInput.value);
-    if (parsed > Number(yearMaxInput.value)) {
-      yearMaxInput.value = parsed;
-    }
-    state.yearMin = parsed;
-    updateFilterReadouts();
-    renderFilteredData({ preserveMapView: true });
-  });
+  const updateYearRange = () => {
+    const min = Number(yearMinInput.value);
+    const max = Number(yearMaxInput.value);
 
-  yearMaxInput.addEventListener('input', () => {
-    const parsed = Number(yearMaxInput.value);
-    if (parsed < Number(yearMinInput.value)) {
-      yearMinInput.value = parsed;
+    if (min > max) {
+      if (document.activeElement === yearMinInput) {
+        yearMaxInput.value = String(min);
+      } else {
+        yearMinInput.value = String(max);
+      }
     }
-    state.yearMax = parsed;
+
+    const rangeMin = Number(yearMinInput.value);
+    const rangeMax = Number(yearMaxInput.value);
+    state.yearMin = rangeMin;
+    state.yearMax = rangeMax;
     updateFilterReadouts();
     renderFilteredData({ preserveMapView: true });
-  });
+  };
+
+  yearMinInput.addEventListener('input', updateYearRange);
+  yearMaxInput.addEventListener('input', updateYearRange);
+  updateFilterReadouts();
 
   magnitudeInput.addEventListener('input', () => {
     state.minMagnitude = Number(magnitudeInput.value);
     updateFilterReadouts();
-    renderFilteredData();
+    renderFilteredData({ preserveMapView: true });
   });
 
   spcToggleButton.addEventListener('click', () => {
@@ -282,9 +286,37 @@ function updateFilterReadouts() {
   const yearMaxInput = document.getElementById('yearMax');
   const magnitudeInput = document.getElementById('magnitudeMin');
 
-  document.getElementById('yearMinValue').textContent = yearMinInput.value;
-  document.getElementById('yearMaxValue').textContent = yearMaxInput.value;
-  document.getElementById('magnitudeValue').textContent = magnitudeInput.value;
+  if (yearMinInput && document.getElementById('yearMinValue')) {
+    document.getElementById('yearMinValue').textContent = yearMinInput.value;
+  }
+  if (yearMaxInput && document.getElementById('yearMaxValue')) {
+    document.getElementById('yearMaxValue').textContent = yearMaxInput.value;
+  }
+  if (yearMinInput && yearMaxInput && document.getElementById('yearRangeValue')) {
+    document.getElementById('yearRangeValue').textContent = `${yearMinInput.value}–${yearMaxInput.value}`;
+  }
+  if (magnitudeInput && document.getElementById('magnitudeValue')) {
+    document.getElementById('magnitudeValue').textContent = magnitudeInput.value;
+  }
+  updateRangeFill();
+}
+
+function updateRangeFill() {
+  const yearMinInput = document.getElementById('yearMin');
+  const yearMaxInput = document.getElementById('yearMax');
+  const fill = document.getElementById('yearRangeFill');
+  if (!yearMinInput || !yearMaxInput || !fill) {
+    return;
+  }
+
+  const min = Number(yearMinInput.min || 1950);
+  const max = Number(yearMaxInput.max || 2025);
+  const range = Math.max(1, max - min);
+  const left = ((Number(yearMinInput.value) - min) / range) * 100;
+  const right = ((Number(yearMaxInput.value) - min) / range) * 100;
+
+  fill.style.left = `${left}%`;
+  fill.style.width = `${Math.max(0, right - left)}%`;
 }
 
 function updateSpcControls() {
@@ -592,48 +624,51 @@ async function fetchNoaaDatForTrack(record) {
     return null;
   }
 
-  const servicesRoot = 'https://services.dat.noaa.gov/arcgis/rest/services';
-  const candidateUrls = [
-    `${servicesRoot}?f=json`,
-    `${servicesRoot}/StormEvents/MapServer?f=json`,
-    `${servicesRoot}/nws/MapServer?f=json`,
-    `${servicesRoot}/nws/tornadoes/MapServer?f=json`,
-  ];
+  const serviceUrl = 'https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/0';
+  const dateFieldCandidates = ['stormdate', 'DATE', 'BEGIN_DATE', 'EVENT_DATE'];
+  const rawDate = normalizeDateString(record.beginDate || record.endDate);
+  const beginDate = rawDate || `${year}-01-01`;
+  const endDate = addDays(beginDate, 2);
 
-  for (const candidateUrl of candidateUrls) {
-    const payload = await fetchJsonIfAvailable(candidateUrl);
+  for (const dateField of dateFieldCandidates) {
+    const where = `${dateField} >= date '${beginDate}' AND ${dateField} < date '${endDate}'`;
+    const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=100`;
+    const payload = await fetchJsonIfAvailable(queryUrl);
     if (!payload) {
       continue;
     }
 
-    const serviceNames = [];
-    if (Array.isArray(payload?.services)) {
-      for (const service of payload.services) {
-        const name = String(service?.name || service?.serviceName || '').trim();
-        if (!name) {
-          continue;
-        }
-        if (/(tornado|storm|event|report)/i.test(name)) {
-          serviceNames.push(name);
-        }
+    const features = Array.isArray(payload?.features) ? payload.features : [];
+    if (!features.length) {
+      continue;
+    }
+
+    const filtered = features.filter((feature) => {
+      const attrs = feature?.attributes || {};
+      const dates = dateFieldCandidates
+        .map((key) => attrs[key])
+        .filter((value) => value !== undefined && value !== null && value !== '')
+        .map((value) => Number(value) || value)
+        .map((value) => {
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            const dt = new Date(value);
+            return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
+          }
+          return normalizeDateString(value);
+        })
+        .filter(Boolean);
+
+      if (!dates.length) {
+        return true;
       }
-    }
 
-    if (candidateUrl === `${servicesRoot}?f=json` && !serviceNames.length) {
-      serviceNames.push('StormEvents', 'nws', 'tornadoes');
-    }
+      return dates.some((date) => date >= beginDate && date < endDate);
+    });
 
-    const urls = serviceNames.map((name) => `${servicesRoot}/${encodeURIComponent(name)}/MapServer/0/query?where=1=1&outFields=*&f=json`);
-    if (candidateUrl.endsWith('/MapServer?f=json')) {
-      urls.push(candidateUrl.replace(/\?f=json$/i, '/0/query?where=1=1&outFields=*&f=json'));
+    if (filtered.length) {
+      return filtered;
     }
-
-    for (const url of urls) {
-      const matches = await queryNoaaDatService(url, record, year);
-      if (matches && matches.length) {
-        return matches;
-      }
-    }
+    return features.slice(0, 20);
   }
 
   return null;
@@ -647,13 +682,13 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
   const rawDate = normalizeDateString(record.beginDate || record.endDate);
   const beginDate = rawDate || `${targetYear}-01-01`;
   const nextDay = addDays(beginDate, 1);
-  const dateClauses = [];
 
-  dateClauses.push(`(DATE >= '${beginDate}' AND DATE < '${nextDay}' OR BEGIN_DATE >= '${beginDate}' AND BEGIN_DATE < '${nextDay}' OR EVENT_DATE >= '${beginDate}' AND EVENT_DATE < '${nextDay}')`);
+  const whereParts = [
+    `((stormdate >= date '${beginDate}' AND stormdate < date '${nextDay}') OR (DATE >= date '${beginDate}' AND DATE < date '${nextDay}') OR (BEGIN_DATE >= date '${beginDate}' AND BEGIN_DATE < date '${nextDay}') OR (EVENT_DATE >= date '${beginDate}' AND EVENT_DATE < date '${nextDay}'))`
+  ];
 
-  const where = dateClauses.join(' AND ');
-  const serviceEndpoint = serviceUrl.replace(/\/query\??.*$/i, '');
-  const queryUrl = `${serviceEndpoint}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=50`;
+  const where = whereParts.join(' AND ');
+  const queryUrl = `${serviceUrl}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=100`;
 
   const payload = await fetchJsonIfAvailable(queryUrl);
   if (!payload) {
@@ -668,6 +703,7 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
   const filtered = features.filter((feature) => {
     const attrs = feature?.attributes || {};
     const dateValues = [
+      attrs.stormdate,
       attrs.DATE,
       attrs.BEGIN_DATE,
       attrs.END_DATE,
@@ -678,20 +714,23 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
       attrs.event_date,
     ]
       .filter((value) => value !== undefined && value !== null && value !== '')
-      .map((value) => String(value));
+      .map((value) => {
+        if (typeof value === 'number') {
+          const dt = new Date(value);
+          return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
+        }
+        return normalizeDateString(value);
+      })
+      .filter(Boolean);
 
     if (!dateValues.length) {
       return true;
     }
 
-    const normalized = dateValues
-      .map((value) => normalizeDateString(value))
-      .filter(Boolean);
-
-    return normalized.some((value) => value >= beginDate && value < nextDay);
+    return dateValues.some((value) => value >= beginDate && value < nextDay);
   });
 
-  return filtered.length ? filtered : features.slice(0, 5);
+  return filtered.length ? filtered : features.slice(0, 20);
 }
 
 function addDays(dateString, days) {
@@ -951,12 +990,20 @@ function refreshYearBounds() {
   yearMinInput.max = String(maxYear);
   yearMaxInput.min = String(minYear);
   yearMaxInput.max = String(maxYear);
-  yearMinInput.value = String(Math.max(state.yearMin || minYear, minYear));
-  yearMaxInput.value = String(Math.min(state.yearMax || maxYear, maxYear));
+
+  const nextMin = Math.max(state.yearMin || minYear, minYear);
+  const nextMax = Math.min(state.yearMax || maxYear, maxYear);
+  yearMinInput.value = String(nextMin);
+  yearMaxInput.value = String(nextMax);
+
+  if (Number(yearMinInput.value) > Number(yearMaxInput.value)) {
+    yearMaxInput.value = String(yearMinInput.value);
+  }
 
   state.yearMin = Number(yearMinInput.value);
   state.yearMax = Number(yearMaxInput.value);
   updateFilterReadouts();
+  updateRangeFill();
 
   state.allBounds = L.latLngBounds(
     allRows

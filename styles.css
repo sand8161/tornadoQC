@@ -135,6 +135,73 @@ h1 {
   color: var(--muted);
 }
 
+.range-slider {
+  position: relative;
+  height: 36px;
+  padding-top: 14px;
+}
+
+.range-slider input[type="range"] {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 100%;
+  pointer-events: none;
+  appearance: none;
+  background: transparent;
+  height: 6px;
+  margin: 0;
+}
+
+.range-slider input[type="range"]::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent-strong);
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.range-slider input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent-strong);
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.range-track,
+.range-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.range-track {
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.range-fill {
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.35), rgba(59, 130, 246, 0.75));
+  pointer-events: none;
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 input[type="range"] {
   width: 100%;
   accent-color: var(--accent-strong);
@@ -392,6 +459,27 @@ textarea {
   align-items: center;
   color: var(--accent);
   font-weight: 700;
+}
+
+.dual-range-wrap {
+  position: relative;
+  height: 32px;
+}
+
+.dual-range-wrap input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+  accent-color: var(--accent-strong);
+}
+
+.dual-range-wrap input[type="range"]::-webkit-slider-thumb {
+  pointer-events: auto;
+}
+
+.dual-range-wrap input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
 }
 
 @media (max-width: 900px) {

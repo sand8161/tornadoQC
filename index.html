@@ -39,22 +39,28 @@
 
         <div class="filters">
           <div class="filter-row">
-            <label for="yearMin">Start year</label>
-            <span id="yearMinValue">1950</span>
+            <label>Year range</label>
+            <span id="yearRangeValue">1950–2025</span>
           </div>
-          <input id="yearMin" type="range" min="1950" max="2025" value="1950" />
 
-          <div class="filter-row">
-            <label for="yearMax">End year</label>
+          <div class="range-slider" aria-label="Year range filter">
+            <div class="range-track"></div>
+            <div class="range-fill" id="yearRangeFill"></div>
+            <input id="yearMin" type="range" min="1950" max="2025" value="1950" />
+            <input id="yearMax" type="range" min="1950" max="2025" value="2025" />
+          </div>
+
+          <div class="range-labels">
+            <span id="yearMinValue">1950</span>
             <span id="yearMaxValue">2025</span>
           </div>
-          <input id="yearMax" type="range" min="1950" max="2025" value="2025" />
 
           <div class="filter-row">
-            <label for="magnitudeMin">Minimum magnitude</label>
+            <label>Min magnitude</label>
             <span id="magnitudeValue">0</span>
           </div>
-          <input id="magnitudeMin" type="range" min="0" max="5" step="1" value="0" />
+
+          <input id="magnitudeMin" type="range" min="0" max="5" value="0" />
         </div>
 
         <div class="actions">
