@@ -333,6 +333,24 @@ async function loadBundledReportParts() {
   return loaded;
 }
 
+async function fetchCsvWithFallback() {
+  const sources = [SPC_URL, FALLBACK_URL];
+
+  for (const source of sources) {
+    try {
+      const response = await fetch(source, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.text();
+    } catch (error) {
+      console.warn(`CSV fetch failed for ${source}`, error);
+    }
+  }
+
+  throw new Error('Could not load SPC CSV from any source.');
+}
+
 async function loadData() {
   try {
     let rows = await loadBundledReportParts();
@@ -626,18 +644,14 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
     return [];
   }
 
-  const beginDate = normalizeDateString(record.beginDate || record.endDate);
-  const endDate = normalizeDateString(record.endDate || record.beginDate);
+  const rawDate = normalizeDateString(record.beginDate || record.endDate);
+  const beginDate = rawDate || `${targetYear}-01-01`;
+  const nextDay = addDays(beginDate, 1);
   const dateClauses = [];
 
-  if (beginDate) {
-    dateClauses.push(`(DATE >= '${beginDate}' OR BEGIN_DATE >= '${beginDate}' OR EVENT_DATE >= '${beginDate}')`);
-  }
-  if (endDate) {
-    dateClauses.push(`(DATE <= '${endDate}' OR BEGIN_DATE <= '${endDate}' OR EVENT_DATE <= '${endDate}')`);
-  }
+  dateClauses.push(`(DATE >= '${beginDate}' AND DATE < '${nextDay}' OR BEGIN_DATE >= '${beginDate}' AND BEGIN_DATE < '${nextDay}' OR EVENT_DATE >= '${beginDate}' AND EVENT_DATE < '${nextDay}')`);
 
-  const where = dateClauses.length ? dateClauses.join(' AND ') : `YEAR = ${targetYear}`;
+  const where = dateClauses.join(' AND ');
   const serviceEndpoint = serviceUrl.replace(/\/query\??.*$/i, '');
   const queryUrl = `${serviceEndpoint}/query?where=${encodeURIComponent(where)}&outFields=*&f=json&resultRecordCount=50`;
 
@@ -670,11 +684,23 @@ async function queryNoaaDatService(serviceUrl, record, targetYear) {
       return true;
     }
 
-    const normalized = dateValues.map((value) => normalizeDateString(value));
-    return normalized.some((value) => value && value.slice(0, 4) === String(targetYear));
+    const normalized = dateValues
+      .map((value) => normalizeDateString(value))
+      .filter(Boolean);
+
+    return normalized.some((value) => value >= beginDate && value < nextDay);
   });
 
   return filtered.length ? filtered : features.slice(0, 5);
+}
+
+function addDays(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return dateString;
+  }
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function normalizeArcgisDatFeature(feature) {
