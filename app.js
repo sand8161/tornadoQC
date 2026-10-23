@@ -853,6 +853,19 @@ function normalizeRow(row, source = 'CSV') {
   const endDate = firstNonEmpty(row.endDate, row.end_date, row.edat, row.endDateTxt, row.endTimestamp, row.end_timestamp);
   const endTime = firstNonEmpty(row.endTime, row.end_time, row.etime, row.endTimeTxt);
 
+  const beginTimestamp = firstNonEmpty(row.beginTimestamp, row.begin_timestamp, row.beginDate, row.begin_date, row.date);
+  const endTimestamp = firstNonEmpty(row.endTimestamp, row.end_timestamp, row.endDate, row.end_date, row.date);
+
+  const normalizedBeginDate = normalizeDateString(beginTimestamp || beginDate);
+  const normalizedEndDate = normalizeDateString(endTimestamp || endDate || beginDate);
+  const normalizedBeginTime = normalizeTimeString(beginTimestamp || beginTime);
+  const normalizedEndTime = normalizeTimeString(endTimestamp || endTime || beginTime);
+
+  const beginDateValue = firstNonEmpty(normalizedBeginDate, beginDate);
+  const beginTimeValue = firstNonEmpty(normalizedBeginTime, beginTime);
+  const endDateValue = firstNonEmpty(normalizedEndDate, endDate, beginDate);
+  const endTimeValue = firstNonEmpty(normalizedEndTime, endTime, beginTime);
+
   const beginLatitude = readFloat(row, ['beginLatitude', 'begin_lat', 'slat', 'startLat', 'lat']);
   const beginLongitude = readFloat(row, ['beginLongitude', 'begin_lon', 'slon', 'startLon', 'lon']);
   const endLatitude = readFloat(row, ['endLatitude', 'end_lat', 'elat', 'endLat']);
@@ -863,7 +876,7 @@ function normalizeRow(row, source = 'CSV') {
   }
 
   const magnitude = normalizeMagnitude(firstNonEmpty(row.mag, row.m, row.fscale, row.efscale, row.magnitude));
-  const year = parseYear(row, beginDate, endDate, row.yr, row.year);
+  const year = parseYear(row, beginDateValue, endDateValue, row.yr, row.year);
   const lengthMiles = readFloat(row, ['len', 'length', 'lengthMiles', 'pathLengthMi', 'pathlength']) || 0;
 
   const record = {
@@ -871,10 +884,10 @@ function normalizeRow(row, source = 'CSV') {
     reportId: String(reportId || `${year}-unknown`),
     source,
     year,
-    beginDate: normalizeDateString(beginDate),
-    beginTime: normalizeTimeString(beginTime),
-    endDate: normalizeDateString(endDate || beginDate),
-    endTime: normalizeTimeString(endTime || beginTime),
+    beginDate: normalizeDateString(beginDateValue),
+    beginTime: normalizeTimeString(beginTimeValue),
+    endDate: normalizeDateString(endDateValue || beginDateValue),
+    endTime: normalizeTimeString(endTimeValue || beginTimeValue),
     beginLatitude,
     beginLongitude,
     endLatitude,
