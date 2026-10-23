@@ -1293,9 +1293,14 @@ async function fetchNoaaDatForTrack(record) {
   let whereClause = '1%3D1';
   if (targetDate) {
     const dt = new Date(targetDate);
-    // Create a 48-hour window to catch time zone overlaps
-    const start = new Date(dt.getTime() - 86400000).toISOString().split('T')[0];
-    const end = new Date(dt.getTime() + 86400000).toISOString().split('T')[0];
+    
+    // We add +12 hours so the date represents Noon UTC, preventing time zone shifts
+    const safeDate = new Date(dt.getTime() + (12 * 60 * 60 * 1000)); 
+    
+    const start = new Date(safeDate.getTime() - 86400000).toISOString().split('T')[0];
+    const end = new Date(safeDate.getTime() + 86400000).toISOString().split('T')[0];
+    
+    // Explicitly use the timestamp keyword matching the Python script format
     whereClause = encodeURIComponent(`stormdate >= timestamp '${start} 00:00:00' AND stormdate <= timestamp '${end} 23:59:59'`);
   }
 
