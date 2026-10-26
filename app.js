@@ -1500,8 +1500,8 @@ async function fetchAwsRadar(record) {
   
   const [year, month, day] = dateStr.split('-');
   const prefix = `${year}/${month}/${day}/${nearest.id}/`;
-  const url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
-
+  const s3Url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
+  const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(s3Url)}`;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error('S3 fetch failed');
