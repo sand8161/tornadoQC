@@ -26,6 +26,7 @@ const state = {
   datRenderers: {},
   radarLayer: null,
   radarType: 'off', // 'off', 'reflectivity', or 'velocity'
+  radarOffsetMinutes: 0,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -285,6 +286,20 @@ function bindControls() {
       });
     }
   });
+  const radarSlider = document.getElementById('radarTimeSlider');
+  const radarOffsetLabel = document.getElementById('radarOffsetLabel');
+  if (radarSlider && radarOffsetLabel) {
+    // Update label smoothly while dragging
+    radarSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      state.radarOffsetMinutes = val;
+      radarOffsetLabel.textContent = (val > 0 ? '+' : '') + val + ' min';
+    });
+    // Only fetch new map tiles when the user lets go of the mouse
+    radarSlider.addEventListener('change', () => {
+      updateIemRadar();
+    });
+  }
 
   if (resetButton) {
     resetButton.addEventListener('click', () => {
@@ -703,6 +718,27 @@ async function handleTrackSelection(record, preserveMapView = true) {
     setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
   }
   updateIemRadar();
+  // Reset slider for new selection
+  state.radarOffsetMinutes = 0;
+  const radarSlider = document.getElementById('radarTimeSlider');
+  const radarOffsetLabel = document.getElementById('radarOffsetLabel');
+  if (radarSlider) radarSlider.value = 0;
+  if (radarOffsetLabel) radarOffsetLabel.textContent = '0 min';
+
+  // Only show radar block for primary tracks
+  const radarControls = document.getElementById('radarControls');
+  if (radarControls) {
+    if (record.source === 'CSV' || record.source === 'SPC') {
+      radarControls.classList.remove('hidden');
+      updateIemRadar();
+    } else {
+      radarControls.classList.add('hidden');
+      if (state.radarLayer) {
+        state.map.removeLayer(state.radarLayer);
+        state.radarLayer = null;
+      }
+    }
+  }
 }
 
 function clearDatLayer() {
@@ -1572,15 +1608,19 @@ async function fetchAwsRadar(record) {
 function updateIemRadar() {
   const record = getSelectedRecord();
   const statusEl = document.getElementById('radarStatus');
+  const scrubber = document.getElementById('radarTimeScrubber');
   
-  // Clean up existing radar layer
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
     state.radarLayer = null;
   }
 
-  if (state.radarType === 'off' || !record) {
+  // Only run for primary CSV or SPC reports
+  const isPrimaryTrack = record && (record.source === 'CSV' || record.source === 'SPC');
+
+  if (state.radarType === 'off' || !isPrimaryTrack) {
     if (statusEl) statusEl.textContent = '';
+    if (scrubber) scrubber.classList.add('hidden');
     return;
   }
 
@@ -1589,24 +1629,29 @@ function updateIemRadar() {
   
   if (!dateStr || Number(dateStr.slice(0, 4)) < 1995) {
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar archive unavailable before 1995.</span>';
+    if (scrubber) scrubber.classList.add('hidden');
     return;
   }
 
-  // SPC times are usually local (CST). Convert roughly to UTC by adding 6 hours.
-  // (For exactness, you'd calculate DST, but 6 hours usually grabs a valid volume scan block)
+  if (scrubber) scrubber.classList.remove('hidden');
+
+  // Times are already UTC, so we construct the date directly
   let utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
-  utcDate.setHours(utcDate.getHours() + 6);
-  const timeParam = utcDate.toISOString(); 
+  
+  // Apply the slider offset
+  utcDate.setMinutes(utcDate.getMinutes() + state.radarOffsetMinutes);
+
+  const timeParam = utcDate.toISOString().replace('.000Z', 'Z'); 
 
   let wmsUrl = '';
   let layerName = '';
 
   if (state.radarType === 'reflectivity') {
     wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
-    layerName = 'nexrad-n0q-wmst'; // High-res base reflectivity
+    layerName = 'nexrad-n0q-wmst'; 
   } else if (state.radarType === 'velocity') {
     wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0u-t.cgi';
-    layerName = 'nexrad-n0u-wmst'; // High-res base velocity
+    layerName = 'nexrad-n0u-wmst'; 
   }
 
   state.radarLayer = L.tileLayer.wms(wmsUrl, {
@@ -1615,7 +1660,7 @@ function updateIemRadar() {
     transparent: true,
     time: timeParam,
     opacity: 0.65,
-    zIndex: 200 // Place it under the tornado tracks (400+) but above base map
+    zIndex: 200 
   });
 
   state.radarLayer.addTo(state.map);
