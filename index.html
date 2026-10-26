@@ -130,8 +130,14 @@
                 <input id="reportId" type="text" />
               </label>
               <span id="selectionLabel" class="selection-label"></span>
-              <div id="radarInfo" class="radar-info">
-                <em>Select a track to find AWS radar data...</em>
+              <div id="radarControls" class="field-row" style="margin-top: 8px; padding: 10px; background: var(--input-bg); border-radius: 8px; border: 1px solid var(--border);">
+                <span style="font-size: 0.8rem; color: var(--muted); margin-bottom: 4px;">Historical Radar (IEM WMS)</span>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                  <button id="radarReflectivityBtn" type="button" class="secondary" style="font-size: 0.75rem;">Reflectivity</button>
+                  <button id="radarVelocityBtn" type="button" class="secondary" style="font-size: 0.75rem;">Velocity</button>
+                  <button id="radarOffBtn" type="button" class="secondary active" style="font-size: 0.75rem;">Off</button>
+                </div>
+                <div id="radarStatus" style="font-size: 0.75rem; color: var(--muted); margin-top: 6px; text-align: center;"></div>
               </div>
             </div>
 

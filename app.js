@@ -24,6 +24,8 @@ const state = {
   datPolygonsVisible: true,
   radarStations: [],
   datRenderers: {},
+  radarLayer: null,
+  radarType: 'off', // 'off', 'reflectivity', or 'velocity'
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -251,7 +253,6 @@ function bindControls() {
       renderFilteredData({ preserveMapView: true });
     });
   }
-  // Add this block inside bindControls() below the spcMultiCountyButton listener
   ['datPolyToggle', 'datPathToggle', 'datPointToggle'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) {
@@ -262,6 +263,25 @@ function bindControls() {
         
         btn.classList.toggle('active');
         renderDatLayer(state.noaaDatMatches); // Re-render the layer with current visibility rules
+      });
+    }
+  });
+  ['radarReflectivityBtn', 'radarVelocityBtn', 'radarOffBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', () => {
+        // Update state
+        if (id === 'radarReflectivityBtn') state.radarType = 'reflectivity';
+        if (id === 'radarVelocityBtn') state.radarType = 'velocity';
+        if (id === 'radarOffBtn') state.radarType = 'off';
+        
+        // Update button UI
+        document.getElementById('radarReflectivityBtn').classList.toggle('active', state.radarType === 'reflectivity');
+        document.getElementById('radarVelocityBtn').classList.toggle('active', state.radarType === 'velocity');
+        document.getElementById('radarOffBtn').classList.toggle('active', state.radarType === 'off');
+
+        // Apply radar
+        updateIemRadar();
       });
     }
   });
@@ -682,9 +702,7 @@ async function handleTrackSelection(record, preserveMapView = true) {
   } else {
     setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
   }
-  
-  // ---> ADD THIS AT THE VERY END OF THE FUNCTION:
-  await fetchAwsRadar(record);
+  updateIemRadar();
 }
 
 function clearDatLayer() {
@@ -1501,8 +1519,7 @@ async function fetchAwsRadar(record) {
   const [year, month, day] = dateStr.split('-');
   const prefix = `${year}/${month}/${day}/${nearest.id}/`;
   const s3Url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
-  const url = `https://api.allorigins.win/raw?url=${encodeURIComponent(s3Url)}`;
-  try {
+  const url = `https://corsproxy.io/?url=${encodeURIComponent(s3Url)}`;  try {
     const response = await fetch(url);
     if (!response.ok) throw new Error('S3 fetch failed');
     const text = await response.text();
@@ -1550,5 +1567,61 @@ async function fetchAwsRadar(record) {
   } catch (err) {
     console.warn('AWS Radar fetch error', err);
     radarEl.innerHTML = `<em>Failed to query AWS bucket for ${nearest.id}.</em>`;
+  }
+}
+function updateIemRadar() {
+  const record = getSelectedRecord();
+  const statusEl = document.getElementById('radarStatus');
+  
+  // Clean up existing radar layer
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+    state.radarLayer = null;
+  }
+
+  if (state.radarType === 'off' || !record) {
+    if (statusEl) statusEl.textContent = '';
+    return;
+  }
+
+  const dateStr = normalizeDateString(record.beginDate || record.endDate);
+  const timeStr = normalizeTimeString(record.beginTime || '00:00');
+  
+  if (!dateStr || Number(dateStr.slice(0, 4)) < 1995) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar archive unavailable before 1995.</span>';
+    return;
+  }
+
+  // SPC times are usually local (CST). Convert roughly to UTC by adding 6 hours.
+  // (For exactness, you'd calculate DST, but 6 hours usually grabs a valid volume scan block)
+  let utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
+  utcDate.setHours(utcDate.getHours() + 6);
+  const timeParam = utcDate.toISOString(); 
+
+  let wmsUrl = '';
+  let layerName = '';
+
+  if (state.radarType === 'reflectivity') {
+    wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
+    layerName = 'nexrad-n0q-wmst'; // High-res base reflectivity
+  } else if (state.radarType === 'velocity') {
+    wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0u-t.cgi';
+    layerName = 'nexrad-n0u-wmst'; // High-res base velocity
+  }
+
+  state.radarLayer = L.tileLayer.wms(wmsUrl, {
+    layers: layerName,
+    format: 'image/png',
+    transparent: true,
+    time: timeParam,
+    opacity: 0.65,
+    zIndex: 200 // Place it under the tornado tracks (400+) but above base map
+  });
+
+  state.radarLayer.addTo(state.map);
+  
+  if (statusEl) {
+    const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
+    statusEl.textContent = `Showing ${typeLabel} for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
   }
 }
