@@ -504,7 +504,15 @@ function renderFilteredData(options = {}) {
   const filtered = [...primaryRows, ...spcRows];
   state.filtered = filtered;
   if (state.polyLines) state.polyLines.clear();
-  if (state.layerGroup) state.layerGroup.clearLayers();
+  
+  // Safely clear all Leaflet layers to prevent ghost click events
+  if (state.layerGroup) {
+    state.layerGroup.clearLayers();
+    // Re-add to map if it was accidentally removed
+    if (!state.map.hasLayer(state.layerGroup)) {
+      state.layerGroup.addTo(state.map);
+    }
+  }
   if (state.datLayerGroup) state.datLayerGroup.clearLayers();
 
   if (!filtered.length) {
@@ -578,14 +586,18 @@ function renderFilteredData(options = {}) {
 function isMultiCountyRow(row) {
   if (!row) return false;
   
-  // SPC encodes multi-county tracks by putting a FIPS code in f2
+  // In SPC data, f2/f3/f4 hold FIPS codes for the 2nd/3rd/4th counties.
+  // If f2 > 0, it crossed a county line.
   const candidateValues = [
     row.f2, row.f_2, row.multiCounty, row.multi_county
   ];
   
   for (const value of candidateValues) {
-    const numeric = Number.parseFloat(String(value ?? '').replace(/,/g, '').trim());
-    // Use !== 0 so any valid FIPS code triggers the multi-county view
+    if (value === null || value === undefined || String(value).trim() === '') continue;
+    
+    const numeric = Number.parseFloat(String(value).replace(/,/g, '').trim());
+    
+    // If it's a valid number and it is NOT zero, it is a multi-county track.
     if (Number.isFinite(numeric) && numeric !== 0) {
       return true;
     }
@@ -593,7 +605,6 @@ function isMultiCountyRow(row) {
   return false;
 }
 
-// Add a global counter to track the active DAT search
 let currentDatSearchId = 0;
 
 async function handleTrackSelection(record, preserveMapView = true) {
@@ -601,9 +612,12 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   state.selectedId = record.id;
   renderEditor();
+  
+  // Re-render the tracks to highlight the selected one
   renderFilteredData({ preserveMapView: true });
 
   const dateLabel = record.beginDate || record.endDate || 'this date';
+  const searchId = ++currentDatSearchId;
 
   if (!document.getElementById('spinner-style')) {
     const style = document.createElement('style');
@@ -617,11 +631,9 @@ async function handleTrackSelection(record, preserveMapView = true) {
     Searching NOAA DAT for ${dateLabel}...
   `);
 
-  // Increment the search ID
-  const searchId = ++currentDatSearchId;
   const matches = await fetchNoaaDatForTrack(record);
 
-  // If another track was clicked while we were fetching, discard these results
+  // If another track was clicked while fetching, bail out cleanly
   if (searchId !== currentDatSearchId) return;
 
   state.noaaDatMatches = matches || [];
