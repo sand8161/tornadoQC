@@ -22,6 +22,8 @@ const state = {
   datPointsVisible: true,
   datPathsVisible: true,
   datPolygonsVisible: true,
+  radarStations: [],
+  datRenderers: {},
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -156,14 +158,18 @@ async function init() {
   tiles.addTo(state.map);
 
   // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
+// Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
   state.map.createPane('datPolygonsPane');
   state.map.getPane('datPolygonsPane').style.zIndex = 390;
+  state.datRenderers.polygons = L.svg({ pane: 'datPolygonsPane' });
   
   state.map.createPane('datLinesPane');
   state.map.getPane('datLinesPane').style.zIndex = 400;
+  state.datRenderers.lines = L.svg({ pane: 'datLinesPane' });
   
   state.map.createPane('datPointsPane');
   state.map.getPane('datPointsPane').style.zIndex = 410;
+  state.datRenderers.points = L.svg({ pane: 'datPointsPane' });
 
   state.layerGroup = L.layerGroup().addTo(state.map);
   state.datLayerGroup = L.layerGroup().addTo(state.map);
@@ -171,6 +177,18 @@ async function init() {
   bindControls();
   updateSpcControls();
   applyTheme('dark');
+  try {
+    const rsResponse = await fetch('https://api.weather.gov/radar/stations?stationType=WSR-88D');
+    const rsData = await rsResponse.json();
+    state.radarStations = rsData.features.map(f => ({
+      id: f.properties.id,
+      name: f.properties.name,
+      lat: f.geometry.coordinates[1],
+      lon: f.geometry.coordinates[0]
+    }));
+  } catch (err) {
+    console.warn('Unable to load NWS radar stations', err);
+  }
   await loadData();
 }
 
@@ -664,6 +682,9 @@ async function handleTrackSelection(record, preserveMapView = true) {
   } else {
     setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
   }
+  
+  // ---> ADD THIS AT THE VERY END OF THE FUNCTION:
+  await fetchAwsRadar(record);
 }
 
 function clearDatLayer() {
@@ -704,6 +725,7 @@ function renderDatLayer(features) {
           // Render circles for non-tornado points
           const marker = L.circleMarker([lat, lon], {
             pane: 'datPointsPane',
+            renderer: state.datRenderers.points, // Add this
             radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: 1,
           });
           marker.bindPopup(popupHtml);
@@ -728,6 +750,7 @@ function renderDatLayer(features) {
         const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
         const line = L.polyline(latLngs, {
           pane: 'datLinesPane',
+          renderer: state.datRenderers.lines, // Add this
           color: datColorByEf(efValue), weight: 3, opacity: 0.9,
         });
         line.bindPopup(popupHtml);
@@ -740,6 +763,7 @@ function renderDatLayer(features) {
         const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
         const polygon = L.polygon(latLngs, {
           pane: 'datPolygonsPane',
+          renderer: state.datRenderers.polygons, // Add this
           color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: 0.35, weight: 2,
         });
         polygon.bindPopup(popupHtml);
@@ -1431,4 +1455,100 @@ async function fetchNoaaDatForTrack(record) {
   }
 
   return Array.from(unique.values());
+}
+function getDistanceMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8; // Earth's radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+async function fetchAwsRadar(record) {
+  const radarEl = document.getElementById('radarInfo');
+  if (!radarEl) return;
+  
+  if (!state.radarStations.length) {
+    radarEl.innerHTML = '<em>Radar station list unavailable.</em>';
+    return;
+  }
+
+  // Find nearest radar
+  let nearest = null;
+  let minDst = Infinity;
+  for (const station of state.radarStations) {
+    const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
+    if (d < minDst) {
+      minDst = d;
+      nearest = station;
+    }
+  }
+
+  const dateStr = normalizeDateString(record.beginDate || record.endDate);
+  const timeStr = normalizeTimeString(record.beginTime || '00:00');
+  
+  // AWS Level-2 archive reliably starts around 1991
+  if (!dateStr || Number(dateStr.slice(0,4)) < 1991) {
+    radarEl.innerHTML = `<em>AWS Level-2 archive unavailable prior to 1991. Nearest site: ${nearest.id} (${Math.round(minDst)} mi)</em>`;
+    return;
+  }
+
+  radarEl.innerHTML = `<em>Querying AWS S3 for ${nearest.id} (${Math.round(minDst)} mi away)...</em>`;
+  
+  const [year, month, day] = dateStr.split('-');
+  const prefix = `${year}/${month}/${day}/${nearest.id}/`;
+  const url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('S3 fetch failed');
+    const text = await response.text();
+    
+    // Parse the AWS XML response
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, "text/xml");
+    const contents = Array.from(xml.querySelectorAll("Contents"));
+    
+    if (!contents.length) {
+      radarEl.innerHTML = `No data found on AWS for <strong>${nearest.id}</strong> on ${dateStr}. (${Math.round(minDst)} mi away)`;
+      return;
+    }
+
+    // Find the closest file by time
+    const targetMs = new Date(`${dateStr}T${timeStr}:00Z`).getTime();
+    let closestFile = null;
+    let minTimeDiff = Infinity;
+
+    for (const c of contents) {
+      const key = c.querySelector('Key').textContent;
+      // Extract HHMMSS from standard NEXRAD filenames: KTLX20130520_195812_V06
+      const match = key.match(/_(\d{6})/);
+      if (match) {
+        const fileMs = new Date(`${dateStr}T${match[1].slice(0,2)}:${match[1].slice(2,4)}:${match[1].slice(4,6)}Z`).getTime();
+        const diff = Math.abs(fileMs - targetMs);
+        if (diff < minTimeDiff) {
+          minTimeDiff = diff;
+          closestFile = key;
+        }
+      }
+    }
+
+    if (closestFile) {
+      const downloadUrl = `https://noaa-nexrad-level2.s3.amazonaws.com/${closestFile}`;
+      const diffMinutes = Math.round(minTimeDiff / 60000);
+      radarEl.innerHTML = `
+        <strong>Nearest site:</strong> ${nearest.id} (${Math.round(minDst)} mi)<br>
+        <strong>Level-2 scan:</strong> <a href="${downloadUrl}" target="_blank">Download .gz</a> 
+        <span style="font-size:0.75rem">(${diffMinutes} min offset from start time)</span>
+      `;
+    } else {
+      radarEl.innerHTML = `AWS files found for ${nearest.id}, but time format was unreadable.`;
+    }
+  } catch (err) {
+    console.warn('AWS Radar fetch error', err);
+    radarEl.innerHTML = `<em>Failed to query AWS bucket for ${nearest.id}.</em>`;
+  }
 }
