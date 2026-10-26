@@ -426,6 +426,17 @@ function bindControls() {
   if (clearButton) {
     clearButton.addEventListener('click', () => {
       state.selectedId = null;
+      
+      // Reset all track styles to normal
+      if (state.polyLines) {
+        state.polyLines.forEach((layer) => {
+          if (layer.setStyle) layer.setStyle({ weight: 3, opacity: 0.8 });
+        });
+      }
+      
+      // Wipe the old DAT polygons/points
+      clearDatLayer(); 
+      
       renderEditor();
       setStatus('Selection cleared.');
     });
@@ -613,9 +624,18 @@ async function handleTrackSelection(record, preserveMapView = true) {
   state.selectedId = record.id;
   renderEditor();
   
-  // Re-render the tracks to highlight the selected one
-  renderFilteredData({ preserveMapView: true });
-
+  // Highlight the selected track without destroying the map layers
+  if (state.polyLines) {
+    state.polyLines.forEach((layer, id) => {
+      const isSelected = (id === state.selectedId);
+      if (layer.setStyle) {
+        layer.setStyle({
+          weight: isSelected ? 6 : 3,
+          opacity: isSelected ? 1 : 0.8
+        });
+      }
+    });
+  }
   const dateLabel = record.beginDate || record.endDate || 'this date';
   const searchId = ++currentDatSearchId;
 
