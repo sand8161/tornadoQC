@@ -651,7 +651,7 @@ function renderFilteredData(options = {}) {
     polyline.bindPopup(buildPopup(row));
     polyline.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
+      await handleTrackSelection(row, false);
     });
     polyline.addTo(state.layerGroup);
     state.polyLines.set(row.id, polyline);
@@ -666,7 +666,7 @@ function renderFilteredData(options = {}) {
     startMarker.bindPopup(buildPopup(row));
     startMarker.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
+      await handleTrackSelection(row, false);
     });
     startMarker.addTo(state.layerGroup);
 
@@ -732,6 +732,21 @@ async function handleTrackSelection(record, preserveMapView = true) {
       }
     });
   }
+
+  // --- ZOOM TO SELECTED PATH ---
+  if (!preserveMapView && state.map) {
+    const start = [record.beginLatitude, record.beginLongitude];
+    const end = [record.endLatitude, record.endLongitude];
+    const trackBounds = L.latLngBounds([start, end]);
+
+    if (trackBounds.isValid()) {
+      state.map.fitBounds(trackBounds, {
+        padding: [60, 60],
+        maxZoom: 12 // Prevents over-zooming on short tracks or single-point paths
+      });
+    }
+  }
+
   const dateLabel = record.beginDate || record.endDate || 'this date';
   const searchId = ++currentDatSearchId;
 
