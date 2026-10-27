@@ -1666,12 +1666,14 @@ async function updateIemRadar() {
       return;
     }
 
-    // 2. Fetch inventory from AWS via corsproxy
+    // 2. Fetch inventory from AWS via proxy
     const [year, month, day] = dateStr.split('-');
     const prefix = `${year}/${month}/${day}/${nearest.id}/`;
     const s3Url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
-    const url = `https://corsproxy.io/?url=${encodeURIComponent(s3Url)}`;
-
+    
+    // Changed proxy: corsproxy.io now restricts its free tier (401 error).
+    // Using CodeTabs proxy instead.
+    const url = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(s3Url)}`;
     try {
       const response = await fetch(url);
       const text = await response.text();
