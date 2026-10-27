@@ -268,18 +268,16 @@ function bindControls() {
     }
   });
   // Button toggles
-  ['radarReflectivityBtn', 'radarVelocityBtn', 'radarAzshearBtn', 'radarOffBtn'].forEach(id => {
+  ['radarReflectivityBtn', 'radarVelocityBtn', 'radarOffBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) {
       btn.addEventListener('click', () => {
         if (id === 'radarReflectivityBtn') state.radarType = 'reflectivity';
         if (id === 'radarVelocityBtn') state.radarType = 'velocity';
-        if (id === 'radarAzshearBtn') state.radarType = 'azshear';
         if (id === 'radarOffBtn') state.radarType = 'off';
         
         document.getElementById('radarReflectivityBtn')?.classList.toggle('active', state.radarType === 'reflectivity');
         document.getElementById('radarVelocityBtn')?.classList.toggle('active', state.radarType === 'velocity');
-        document.getElementById('radarAzshearBtn')?.classList.toggle('active', state.radarType === 'azshear');
         document.getElementById('radarOffBtn')?.classList.toggle('active', state.radarType === 'off');
 
         updateIemRadar();
@@ -300,11 +298,9 @@ function bindControls() {
   }
 
   if (radarSlider && radarOffsetLabel) {
-    // Smoothly update the label while dragging
     radarSlider.addEventListener('input', (e) => {
       updateSliderUI(parseInt(e.target.value, 10));
     });
-    // Fetch new map tiles when the user lets go of the slider
     radarSlider.addEventListener('change', () => {
       updateIemRadar();
     });
@@ -325,6 +321,28 @@ function bindControls() {
       updateIemRadar();
     });
   }
+
+  // Keyboard arrow bindings for time scrubbing
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      return;
+    }
+    const scrubber = document.getElementById('radarTimeScrubber');
+    if (!scrubber || scrubber.classList.contains('hidden') || state.radarType === 'off') {
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault(); 
+      const newVal = Math.max(-60, state.radarOffsetMinutes - 5);
+      updateSliderUI(newVal);
+      updateIemRadar();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault(); 
+      const newVal = Math.min(60, state.radarOffsetMinutes + 5);
+      updateSliderUI(newVal);
+      updateIemRadar();
+    }
+  });
 
   if (resetButton) {
     resetButton.addEventListener('click', () => {
@@ -1669,23 +1687,7 @@ function updateIemRadar() {
   const hh = String(utcDate.getUTCHours()).padStart(2, '0');
   const min = String(utcDate.getUTCMinutes()).padStart(2, '0');
 
-  if (state.radarType === 'reflectivity') {
-    const timeParam = utcDate.toISOString();
-
-    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi', {
-      layers: 'nexrad-n0q-wmst',
-      format: 'image/png',
-      transparent: true,
-      time: timeParam,
-      opacity: 0.65,
-      zIndex: 200,
-      uppercase: false 
-    });
-
-    state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `Showing Reflectivity for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
-    
-  } else if (state.radarType === 'velocity') {
+  if (state.radarType === 'reflectivity' || state.radarType === 'velocity') {
     if (!state.radarStations || !state.radarStations.length) {
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
       return;
@@ -1702,13 +1704,15 @@ function updateIemRadar() {
     }
 
     const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
+    const product = state.radarType === 'reflectivity' ? 'N0Q' : 'N0V';
+    const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
 
     state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
       layers: 'single-archive',
       format: 'image/png',
       transparent: true,
       sector: site3,
-      prod: 'N0V', // N0V = Base Velocity
+      prod: product,
       year: yyyy,
       month: mm,
       day: dd,
@@ -1720,26 +1724,6 @@ function updateIemRadar() {
     });
 
     state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `Showing Velocity (${site3}) for ~${hh}:${min} UTC`;
-
-  } else if (state.radarType === 'azshear') {
-    const center = state.map.getCenter();
-    const zoom = state.map.getZoom();
-    const size = state.map.getSize();
-
-    const paramMM = parseInt(mm, 10);
-    const paramDD = parseInt(dd, 10);
-    const paramHH = parseInt(hh, 10);
-    const paramMIN = parseInt(min, 10);
-
-    const url = `https://mrms.nssl.noaa.gov/qvs/product_viewer/local/render_multi_domain_product_layer.php?mode=run&cpp_exec_dir=/home/metop/web/specific/opv/&web_resources_dir=/var/www/html/qvs/product_viewer/resources/&prod_root=AZ_SHEAR&qperate_pal_option=0&qpe_pal_option=0&year=${yyyy}&month=${paramMM}&day=${paramDD}&hour=${paramHH}&minute=${paramMIN}&clon=${center.lng}&clat=${center.lat}&zoom=${zoom}&width=${size.x}&height=${size.y}`;
-
-    state.radarLayer = L.imageOverlay(url, state.map.getBounds(), {
-      opacity: 0.65,
-      zIndex: 200
-    });
-    
-    state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `MRMS AzShear • ${hh}:${min} UTC`;
+    if (statusEl) statusEl.textContent = `Showing ${typeLabel} (${site3}) for ~${hh}:${min} UTC`;
   }
 }
