@@ -1704,7 +1704,7 @@ function updateIemRadar() {
     }
 
     const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
-    const product = state.radarType === 'reflectivity' ? 'N0Q' : 'N0V';
+    const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0U';
     const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
     const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
 
