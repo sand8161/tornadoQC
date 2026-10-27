@@ -1062,10 +1062,12 @@ function normalizeTimeString(value) {
     return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
   }
 
-  const hourMinute = text.match(/^(\d{4})$/);
-  if (hourMinute) {
-    const [, raw] = hourMinute;
-    return `${raw.slice(0, 2)}:${raw.slice(2, 4)}`;
+  // Check for raw numbers up to 4 digits (e.g., "239", "1430", "5")
+  const rawNumber = text.match(/^(\d{1,4})$/);
+  if (rawNumber) {
+    // Pad the string to exactly 4 characters (e.g., "239" -> "0239", "5" -> "0005")
+    const padded = rawNumber[1].padStart(4, '0');
+    return `${padded.slice(0, 2)}:${padded.slice(2, 4)}`;
   }
 
   return null;
