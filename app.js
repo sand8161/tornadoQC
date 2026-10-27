@@ -27,6 +27,8 @@ const state = {
   radarLayer: null,
   radarType: 'off', // 'off', 'reflectivity', or 'velocity'
   radarOffsetMinutes: 0,
+  baseTileLayer: null,
+  theme: 'dark',
 };
 
 document.addEventListener('DOMContentLoaded', init);
