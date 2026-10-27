@@ -138,14 +138,12 @@
                   <button id="radarOffBtn" type="button" class="secondary active" style="font-size: 0.75rem;">Off</button>
                 </div>
                 
-                <!-- New Time Slider -->
-                <div id="radarTimeScrubber" class="hidden" style="margin-top: 10px;">
-                  <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px;">
-                    <span>-60 min</span>
-                    <strong id="radarOffsetLabel" style="color: var(--accent);">0 min</strong>
-                    <span>+60 min</span>
+                <div id="radarTimeControls" class="hidden" style="margin-top: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text);">
+                    <button id="radarPrevBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; font-size: 0.7rem;">&laquo; Prev</button>
+                    <strong id="radarTimeLabel" style="color: var(--accent);">Loading scans...</strong>
+                    <button id="radarNextBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; font-size: 0.7rem;">Next &raquo;</button>
                   </div>
-                  <input id="radarTimeSlider" type="range" min="-60" max="60" step="5" value="0" style="width: 100%; cursor: pointer;" />
                 </div>
 
                 <div id="radarStatus" style="font-size: 0.75rem; color: var(--muted); margin-top: 6px; text-align: center;"></div>
