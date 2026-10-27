@@ -524,14 +524,14 @@ textarea {
 
 .layer-menu > div {
   display: block;
-  padding: 2px 4px 4px !important;
+  padding: 5px 6px 6px !important;
 }
 
 .layer-section {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 3px 0;
+  gap: 4px;
+  padding: 4px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -543,7 +543,7 @@ textarea {
 }
 
 .layer-title {
-  font-size: 0.62rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
@@ -555,15 +555,15 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  width: 68px;
-  min-width: 68px;
-  height: 20px;
-  padding: 0 10px 0 18px;
+  width: 78px;
+  min-width: 78px;
+  height: 22px;
+  padding: 0 10px 0 20px;
   background: rgba(148, 163, 184, 0.12);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
-  font-size: 0.5rem;
+  font-size: 0.52rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
@@ -576,8 +576,8 @@ textarea {
   content: "";
   position: absolute;
   left: 4px;
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
@@ -599,19 +599,20 @@ textarea {
 }
 
 .opacity-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 0.52rem;
+  font-size: 0.56rem;
   margin: 0;
   min-height: 18px;
   padding: 0;
 }
 
 .opacity-row input[type="range"] {
-  flex: 1;
   width: 100%;
+  min-width: 0;
   margin: 0;
   height: 18px;
   padding: 0;
