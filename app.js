@@ -336,6 +336,18 @@ function bindControls() {
     }
   });
 
+  const zoomToTrackBtn = document.getElementById('zoomToTrackBtn');
+  if (zoomToTrackBtn) {
+    zoomToTrackBtn.addEventListener('click', () => {
+      const record = getSelectedRecord();
+      if (!record) {
+        setStatus('Select a tornado segment before zooming.', true);
+        return;
+      }
+      zoomToSelectedTrack();
+    });
+  }
+
   if (resetButton) {
     resetButton.addEventListener('click', () => {
       if (state.allBounds && state.allBounds.isValid()) {
@@ -1794,5 +1806,20 @@ async function updateIemRadar() {
 
   if (statusEl) {
     statusEl.textContent = `Showing ${typeLabel} (${site3}) • ${hh}:${min} UTC`;
+  }
+}
+function zoomToSelectedTrack() {
+  const record = getSelectedRecord();
+  if (!record || !state.map) return;
+
+  const start = [record.beginLatitude, record.beginLongitude];
+  const end = [record.endLatitude, record.endLongitude];
+  const trackBounds = L.latLngBounds([start, end]);
+
+  if (trackBounds.isValid()) {
+    state.map.fitBounds(trackBounds, {
+      padding: [60, 60],
+      maxZoom: 12
+    });
   }
 }
