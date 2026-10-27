@@ -287,45 +287,42 @@ function bindControls() {
     }
   });
 
-  // Time scrubber
+  // Time scrubber and step buttons
   const radarSlider = document.getElementById('radarTimeSlider');
   const radarOffsetLabel = document.getElementById('radarOffsetLabel');
+  const stepBackBtn = document.getElementById('radarStepBackBtn');
+  const stepFwdBtn = document.getElementById('radarStepFwdBtn');
+
+  function updateSliderUI(val) {
+    state.radarOffsetMinutes = val;
+    if (radarSlider) radarSlider.value = val;
+    if (radarOffsetLabel) radarOffsetLabel.textContent = (val > 0 ? '+' : '') + val + ' min';
+  }
+
   if (radarSlider && radarOffsetLabel) {
+    // Smoothly update the label while dragging
     radarSlider.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      state.radarOffsetMinutes = val;
-      radarOffsetLabel.textContent = (val > 0 ? '+' : '') + val + ' min';
+      updateSliderUI(parseInt(e.target.value, 10));
     });
+    // Fetch new map tiles when the user lets go of the slider
     radarSlider.addEventListener('change', () => {
       updateIemRadar();
     });
   }
 
-  // Re-fetch the static MRMS image overlay whenever the user finishes panning or zooming
-  state.map.on('moveend', () => {
-    if (state.radarType === 'azshear') {
+  if (stepBackBtn) {
+    stepBackBtn.addEventListener('click', () => {
+      const newVal = Math.max(-60, state.radarOffsetMinutes - 5);
+      updateSliderUI(newVal);
       updateIemRadar();
-    }
-  });
-  // Replace the radarSlider block with this:
-  const prevBtn = document.getElementById('radarPrevBtn');
-  const nextBtn = document.getElementById('radarNextBtn');
-  
-  if (prevBtn) {
-    prevBtn.addEventListener('click', () => {
-      if (state.radarScans.length > 0 && state.radarScanIndex > 0) {
-        state.radarScanIndex--;
-        updateIemRadar();
-      }
     });
   }
-  
-  if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
-      if (state.radarScans.length > 0 && state.radarScanIndex < state.radarScans.length - 1) {
-        state.radarScanIndex++;
-        updateIemRadar();
-      }
+
+  if (stepFwdBtn) {
+    stepFwdBtn.addEventListener('click', () => {
+      const newVal = Math.min(60, state.radarOffsetMinutes + 5);
+      updateSliderUI(newVal);
+      updateIemRadar();
     });
   }
 

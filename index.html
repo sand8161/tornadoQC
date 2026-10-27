@@ -141,11 +141,15 @@
                   <button id="radarOffBtn" type="button" class="secondary active" style="font-size: 0.75rem;">Off</button>
                 </div>
                 
-                <div id="radarTimeControls" class="hidden" style="margin-top: 10px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text);">
-                    <button id="radarPrevBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; font-size: 0.7rem;">&laquo; Prev</button>
-                    <strong id="radarTimeLabel" style="color: var(--accent);">Loading scans...</strong>
-                    <button id="radarNextBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; font-size: 0.7rem;">Next &raquo;</button>
+                <div id="radarTimeScrubber" class="hidden" style="margin-top: 10px;">
+                  <div style="text-align: center; font-size: 0.75rem; margin-bottom: 6px;">
+                    <span style="color: var(--muted);">Offset: </span>
+                    <strong id="radarOffsetLabel" style="color: var(--accent);">0 min</strong>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <button id="radarStepBackBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="-5 minutes">&laquo;</button>
+                    <input id="radarTimeSlider" type="range" min="-60" max="60" step="5" value="0" style="flex-grow: 1; cursor: pointer; margin: 0;" />
+                    <button id="radarStepFwdBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="+5 minutes">&raquo;</button>
                   </div>
                 </div>
 
