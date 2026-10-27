@@ -162,8 +162,10 @@ async function init() {
   });
   tiles.addTo(state.map);
 
+  state.map.createPane('countyPane');
+  state.map.getPane('countyPane').style.zIndex = 350;
+
   // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
-// Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
   state.map.createPane('datPolygonsPane');
   state.map.getPane('datPolygonsPane').style.zIndex = 390;
   state.datRenderers.polygons = L.svg({ pane: 'datPolygonsPane' });
@@ -182,6 +184,8 @@ async function init() {
   bindControls();
   updateSpcControls();
   applyTheme('dark');
+  loadCountyBoundaries();
+  
   try {
     const rsResponse = await fetch('https://api.weather.gov/radar/stations?stationType=WSR-88D');
     const rsData = await rsResponse.json();
@@ -1917,4 +1921,41 @@ function hideDetailsPanel() {
 function escapeHtml(text) {
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return String(text).replace(/[&<>"']/g, (m) => map[m]);
+}
+
+async function loadCountyBoundaries() {
+  try {
+    // Parses zipped shapefile or the prefix path if extracted
+    const geojson = await shp('./cb_2018_us_county_5m/cb_2018_us_county_5m.shp');
+
+    L.geoJSON(geojson, {
+      pane: 'countyPane',
+      style: {
+        color: '#64748b',       // Neutral slate boundary
+        weight: 1,
+        opacity: 0.55,
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        interactive: false      // Disables pointer interception so you can click tornado tracks underneath
+      }
+    }).addTo(state.map);
+  } catch (err) {
+    // If not zipped, try loading from the directory directly
+    try {
+      const geojsonDir = await shp('./cb_2018_us_county_5m/cb_2018_us_county_5m');
+      L.geoJSON(geojsonDir, {
+        pane: 'countyPane',
+        style: {
+          color: '#64748b',
+          weight: 1,
+          opacity: 0.55,
+          fillColor: 'transparent',
+          fillOpacity: 0,
+          interactive: false
+        }
+      }).addTo(state.map);
+    } catch (dirErr) {
+      console.warn('Failed to load county shapefile:', err, dirErr);
+    }
+  }
 }
