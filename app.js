@@ -615,16 +615,20 @@ function renderFilteredData(options = {}) {
   state.filtered = filtered;
   if (state.polyLines) state.polyLines.clear();
   
-  // Safely clear all Leaflet layers to prevent ghost click events
+  // Safely clear primary tornado track layers
   if (state.layerGroup) {
     state.layerGroup.clearLayers();
-    // Re-add to map if it was accidentally removed
     if (!state.map.hasLayer(state.layerGroup)) {
       state.layerGroup.addTo(state.map);
     }
   }
-  if (state.datLayerGroup) state.datLayerGroup.clearLayers();
 
+  // Redraw the existing DAT layers for the selected track instead of destroying them
+  if (state.selectedId && state.noaaDatMatches && state.noaaDatMatches.length) {
+    renderDatLayer(state.noaaDatMatches);
+  } else if (!state.selectedId && state.datLayerGroup) {
+    clearDatLayer(true);
+  }
   if (!filtered.length) {
     const trackCount = document.getElementById('trackCount');
     const maxMagnitude = document.getElementById('maxMagnitude');
