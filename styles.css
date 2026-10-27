@@ -528,24 +528,64 @@ textarea {
 }
 
 .layer-eye {
-  width: auto;
-  min-width: 48px;
-  padding: 4px 10px;
-  background: transparent;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 28px;
+  padding: 0 10px;
+  background: rgba(148, 163, 184, 0.12);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.72rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
   font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
+  line-height: 1;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  transition: all 0.2s ease;
+}
+
+.layer-eye::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .layer-eye.active {
-  background: rgba(96, 165, 250, 0.14);
-  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(96, 165, 250, 0.7);
+  color: var(--accent);
+}
+
+.layer-eye.active::before {
+  transform: translateX(31px);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.layer-eye {
+  padding-left: 28px;
+  padding-right: 10px;
+}
+
+.layer-eye.active {
+  padding-left: 10px;
+  padding-right: 28px;
+}
+
+.layer-eye[aria-label*="Hide"] {
+  color: var(--muted);
+}
+
+.layer-eye[aria-label*="Show"] {
   color: var(--accent);
 }
 

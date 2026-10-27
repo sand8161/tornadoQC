@@ -1058,7 +1058,7 @@ function updateLayerControlStates() {
 
   const setToggleText = (button, visible) => {
     if (!button) return;
-    button.textContent = visible ? 'View' : 'Hide';
+    button.textContent = visible ? 'On' : 'Off';
     button.classList.toggle('active', visible);
     button.setAttribute('aria-label', visible ? 'Hide layer' : 'Show layer');
     button.title = visible ? 'Hide layer' : 'Show layer';
@@ -1074,8 +1074,10 @@ function updateSpcControls() {
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   if (spcToggleButton) {
-    spcToggleButton.textContent = state.spcLayerVisible ? 'View' : 'Hide';
+    spcToggleButton.textContent = state.spcLayerVisible ? 'On' : 'Off';
     spcToggleButton.classList.toggle('active', state.spcLayerVisible);
+    spcToggleButton.setAttribute('aria-label', state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer');
+    spcToggleButton.title = state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer';
   }
 
   if (spcMultiCountyButton) {
@@ -1848,7 +1850,7 @@ async function updateIemRadar() {
       }
 
       state.radarScans = scans;
-      state.radarRecordId = trackKey;
+           state.radarRecordId = trackKey;
 
       const targetMs = targetDate.getTime();
       let bestIdx = 0;
