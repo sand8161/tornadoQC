@@ -26,10 +26,7 @@ const state = {
   datRenderers: {},
   radarLayer: null,
   radarType: 'off', // 'off', 'reflectivity', or 'velocity'
-  radarScans: [],       // Holds exact AWS scan timestamps
-  radarScanIndex: 0,    // Which scan we are currently viewing
-  radarRecordId: null,  // Tracks which tornado we fetched scans for
-  radarSiteId: null,    // Tracks the nearest radar site
+  radarOffsetMinutes: 0,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -270,23 +267,44 @@ function bindControls() {
       });
     }
   });
-  ['radarReflectivityBtn', 'radarVelocityBtn', 'radarOffBtn'].forEach(id => {
+  // Button toggles
+  ['radarReflectivityBtn', 'radarVelocityBtn', 'radarAzshearBtn', 'radarOffBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) {
       btn.addEventListener('click', () => {
-        // Update state
         if (id === 'radarReflectivityBtn') state.radarType = 'reflectivity';
         if (id === 'radarVelocityBtn') state.radarType = 'velocity';
+        if (id === 'radarAzshearBtn') state.radarType = 'azshear';
         if (id === 'radarOffBtn') state.radarType = 'off';
         
-        // Update button UI
-        document.getElementById('radarReflectivityBtn').classList.toggle('active', state.radarType === 'reflectivity');
-        document.getElementById('radarVelocityBtn').classList.toggle('active', state.radarType === 'velocity');
-        document.getElementById('radarOffBtn').classList.toggle('active', state.radarType === 'off');
+        document.getElementById('radarReflectivityBtn')?.classList.toggle('active', state.radarType === 'reflectivity');
+        document.getElementById('radarVelocityBtn')?.classList.toggle('active', state.radarType === 'velocity');
+        document.getElementById('radarAzshearBtn')?.classList.toggle('active', state.radarType === 'azshear');
+        document.getElementById('radarOffBtn')?.classList.toggle('active', state.radarType === 'off');
 
-        // Apply radar
         updateIemRadar();
       });
+    }
+  });
+
+  // Time scrubber
+  const radarSlider = document.getElementById('radarTimeSlider');
+  const radarOffsetLabel = document.getElementById('radarOffsetLabel');
+  if (radarSlider && radarOffsetLabel) {
+    radarSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      state.radarOffsetMinutes = val;
+      radarOffsetLabel.textContent = (val > 0 ? '+' : '') + val + ' min';
+    });
+    radarSlider.addEventListener('change', () => {
+      updateIemRadar();
+    });
+  }
+
+  // Re-fetch the static MRMS image overlay whenever the user finishes panning or zooming
+  state.map.on('moveend', () => {
+    if (state.radarType === 'azshear') {
+      updateIemRadar();
     }
   });
   // Replace the radarSlider block with this:
@@ -1616,11 +1634,10 @@ async function fetchAwsRadar(record) {
   }
 }
 
-async function updateIemRadar() {
+function updateIemRadar() {
   const record = getSelectedRecord();
   const statusEl = document.getElementById('radarStatus');
-  const controlsEl = document.getElementById('radarTimeControls');
-  const labelEl = document.getElementById('radarTimeLabel');
+  const scrubber = document.getElementById('radarTimeScrubber');
   
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
@@ -1631,7 +1648,7 @@ async function updateIemRadar() {
 
   if (state.radarType === 'off' || !isPrimaryTrack) {
     if (statusEl) statusEl.textContent = '';
-    if (controlsEl) controlsEl.classList.add('hidden');
+    if (scrubber) scrubber.classList.add('hidden');
     return;
   }
 
@@ -1640,17 +1657,43 @@ async function updateIemRadar() {
   
   if (!dateStr || Number(dateStr.slice(0, 4)) < 1995) {
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar archive unavailable before 1995.</span>';
-    if (controlsEl) controlsEl.classList.add('hidden');
+    if (scrubber) scrubber.classList.add('hidden');
     return;
   }
 
-  if (controlsEl) controlsEl.classList.remove('hidden');
+  if (scrubber) scrubber.classList.remove('hidden');
 
-  // --- FETCH SCANS IF WE HAVEN'T YET FOR THIS TORNADO ---
-  if (state.radarRecordId !== record.id || !state.radarScans.length) {
-    if (labelEl) labelEl.textContent = 'Searching AWS archive...';
+  let utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
+  utcDate.setMinutes(utcDate.getMinutes() + state.radarOffsetMinutes);
+
+  const yyyy = utcDate.getUTCFullYear();
+  const mm = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(utcDate.getUTCDate()).padStart(2, '0');
+  const hh = String(utcDate.getUTCHours()).padStart(2, '0');
+  const min = String(utcDate.getUTCMinutes()).padStart(2, '0');
+
+  if (state.radarType === 'reflectivity') {
+    const timeParam = utcDate.toISOString();
+
+    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi', {
+      layers: 'nexrad-n0q-wmst',
+      format: 'image/png',
+      transparent: true,
+      time: timeParam,
+      opacity: 0.65,
+      zIndex: 200,
+      uppercase: false 
+    });
+
+    state.radarLayer.addTo(state.map);
+    if (statusEl) statusEl.textContent = `Showing Reflectivity for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
     
-    // 1. Find nearest radar
+  } else if (state.radarType === 'velocity') {
+    if (!state.radarStations || !state.radarStations.length) {
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
+      return;
+    }
+
     let nearest = null;
     let minDst = Infinity;
     for (const station of state.radarStations) {
@@ -1660,114 +1703,15 @@ async function updateIemRadar() {
         nearest = station;
       }
     }
-    
-    if (!nearest) {
-      if (labelEl) labelEl.textContent = 'No radar found.';
-      return;
-    }
 
-    // 2. Fetch inventory from AWS via proxy
-    const [year, month, day] = dateStr.split('-');
-    const prefix = `${year}/${month}/${day}/${nearest.id}/`;
-    const s3Url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
-    
-    // Changed proxy: corsproxy.io now restricts its free tier (401 error).
-    // Using CodeTabs proxy instead.
-    const url = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(s3Url)}`;
-    try {
-      const response = await fetch(url);
-      const text = await response.text();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(text, "text/xml");
-      const contents = Array.from(xml.querySelectorAll("Contents"));
+    const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
 
-      let scans = [];
-      for (const c of contents) {
-        const key = c.querySelector('Key').textContent;
-        const match = key.match(/_(\d{6})/);
-        if (match) {
-          const fileMs = new Date(`${dateStr}T${match[1].slice(0,2)}:${match[1].slice(2,4)}:${match[1].slice(4,6)}Z`).getTime();
-          scans.push(fileMs);
-        }
-      }
-      scans.sort((a, b) => a - b);
-
-      // 3. Filter to +/- 1 hour of the tornado start time
-      const targetMs = new Date(`${dateStr}T${timeStr}:00Z`).getTime();
-      const oneHour = 60 * 60 * 1000;
-      scans = scans.filter(ms => ms >= targetMs - oneHour && ms <= targetMs + oneHour);
-
-      if (!scans.length) {
-         if (labelEl) labelEl.textContent = 'No scans found in 2hr window.';
-         return;
-      }
-
-      // 4. Find the scan closest to the tornado start time to show first
-      let bestIdx = 0;
-      let minDiff = Infinity;
-      scans.forEach((ms, idx) => {
-        const diff = Math.abs(ms - targetMs);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestIdx = idx;
-        }
-      });
-
-      state.radarScans = scans;
-      state.radarScanIndex = bestIdx;
-      state.radarRecordId = record.id;
-      state.radarSiteId = nearest.id;
-    } catch (err) {
-      console.warn(err);
-      if (labelEl) labelEl.textContent = 'AWS fetch failed.';
-      return;
-    }
-  }
-
-  // --- RENDER THE SELECTED SCAN ---
-  const exactMs = state.radarScans[state.radarScanIndex];
-  const exactDate = new Date(exactMs);
-  
-  if (labelEl) {
-    labelEl.textContent = `Scan ${state.radarScanIndex + 1} of ${state.radarScans.length} (${exactDate.toISOString().slice(11,16)}Z)`;
-  }
-
-  const yyyy = exactDate.getUTCFullYear();
-  const mm = String(exactDate.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(exactDate.getUTCDate()).padStart(2, '0');
-  const hh = String(exactDate.getUTCHours()).padStart(2, '0');
-  const min = String(exactDate.getUTCMinutes()).padStart(2, '0');
-
-  if (state.radarType === 'reflectivity') {
-    // Snap Reflectivity to the nearest 5-minute interval for the IEM Mosaic
-    const coeff = 1000 * 60 * 5;
-    const snapped = new Date(Math.round(exactMs / coeff) * coeff);
-    const snapH = String(snapped.getUTCHours()).padStart(2, '0');
-    const snapM = String(snapped.getUTCMinutes()).padStart(2, '0');
-    const timeParam = `${yyyy}-${mm}-${dd}T${snapH}:${snapM}:00Z`;
-
-    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi', {
-      layers: 'nexrad-n0q-wmst',
-      format: 'image/png',
-      transparent: true,
-      time: timeParam,
-      opacity: 0.65,
-      zIndex: 200,
-      uppercase: true 
-    });
-    state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `National Mosaic • ~${timeParam.slice(11, 16)} UTC`;
-    
-  } else if (state.radarType === 'velocity') {
-    // Velocity uses the exact HHMM and the 3-letter site ID
-    const site3 = state.radarSiteId.length === 4 ? state.radarSiteId.slice(1) : state.radarSiteId;
-    
     state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
-      layers: 'N0V',
+      layers: 'single-archive',
       format: 'image/png',
       transparent: true,
       sector: site3,
-      prod: 'N0V',
+      prod: 'N0V', // N0V = Base Velocity
       year: yyyy,
       month: mm,
       day: dd,
@@ -1777,7 +1721,28 @@ async function updateIemRadar() {
       tileSize: 1024,
       updateWhenIdle: true
     });
+
     state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `Single Site (${site3}) • ${hh}:${min} UTC`;
+    if (statusEl) statusEl.textContent = `Showing Velocity (${site3}) for ~${hh}:${min} UTC`;
+
+  } else if (state.radarType === 'azshear') {
+    const center = state.map.getCenter();
+    const zoom = state.map.getZoom();
+    const size = state.map.getSize();
+
+    const paramMM = parseInt(mm, 10);
+    const paramDD = parseInt(dd, 10);
+    const paramHH = parseInt(hh, 10);
+    const paramMIN = parseInt(min, 10);
+
+    const url = `https://mrms.nssl.noaa.gov/qvs/product_viewer/local/render_multi_domain_product_layer.php?mode=run&cpp_exec_dir=/home/metop/web/specific/opv/&web_resources_dir=/var/www/html/qvs/product_viewer/resources/&prod_root=AZ_SHEAR&qperate_pal_option=0&qpe_pal_option=0&year=${yyyy}&month=${paramMM}&day=${paramDD}&hour=${paramHH}&minute=${paramMIN}&clon=${center.lng}&clat=${center.lat}&zoom=${zoom}&width=${size.x}&height=${size.y}`;
+
+    state.radarLayer = L.imageOverlay(url, state.map.getBounds(), {
+      opacity: 0.65,
+      zIndex: 200
+    });
+    
+    state.radarLayer.addTo(state.map);
+    if (statusEl) statusEl.textContent = `MRMS AzShear • ${hh}:${min} UTC`;
   }
 }
