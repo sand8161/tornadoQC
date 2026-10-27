@@ -204,7 +204,7 @@ function bindControls() {
   const csvInput = document.getElementById('csvUpload');
   const datInput = document.getElementById('datUpload');
   const exportButton = document.getElementById('exportCorrections');
-  const themeButton = document.getElementById('themeToggle');
+  const themeButton = document.getElementById('themeToggleBtn');
   const saveButton = document.getElementById('saveChanges');
   const clearButton = document.getElementById('clearSelection');
   const spcToggleButton = document.getElementById('spcToggle');
@@ -247,6 +247,19 @@ function bindControls() {
       renderFilteredData({ preserveMapView: true });
     });
   }
+
+  const closeDetailsBtn = document.getElementById('closeDetailsBtn');
+  if (closeDetailsBtn) {
+    closeDetailsBtn.addEventListener('click', hideDetailsPanel);
+  }
+
+  if (clearButton) {
+    clearButton.addEventListener('click', () => {
+      // ... existing clear logic ...
+      hideDetailsPanel();
+    });
+  }
+
   ['datPolyToggle', 'datPathToggle', 'datPointToggle'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) {
@@ -726,6 +739,20 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   state.selectedId = record.id;
   renderEditor();
+
+  // Open right panel for CSV tracks; hide it for SPC tracks
+  if (record.source === 'CSV') {
+    renderDetailsPanel(record);
+  } else {
+    hideDetailsPanel();
+  }
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+    state.radarLayer = null;
+  }
+  state.radarScans = [];
+  state.radarScanIndex = 0;
+  state.radarRecordId = null;
   
   // Highlight the selected track without destroying the map layers
   if (state.polyLines) {
@@ -739,6 +766,10 @@ async function handleTrackSelection(record, preserveMapView = true) {
       }
     });
   }
+  const statusEl = document.getElementById('radarStatus');
+  const offsetLabel = document.getElementById('radarOffsetLabel');
+  if (statusEl) statusEl.textContent = '';
+  if (offsetLabel) offsetLabel.textContent = '--:-- UTC';
 
   // Only zoom if preserveMapView is explicitly passed as false
   if (!preserveMapView && state.map) {
@@ -1391,6 +1422,7 @@ function normalizeRow(row, source) {
   );
 
   const normalized = {
+    _raw: row, // Keep full original column set for inspection
     id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
     reportId: String(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
     source,
@@ -1713,7 +1745,7 @@ async function updateIemRadar() {
 
   const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
   const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0S';
-  const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SRV Velocity';
+  const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SR Velocity';
 
   // --- QUERY IEM JSON CATALOG FOR VALID TIMESTAMPS ---
   const trackKey = `${record.id}_${state.radarType}_${site3}`;
@@ -1811,7 +1843,7 @@ async function updateIemRadar() {
   state.radarLayer.addTo(state.map);
 
   if (statusEl) {
-    statusEl.textContent = `Showing ${typeLabel} (${site3}) • ${hh}:${min} UTC`;
+    statusEl.textContent = `${typeLabel} (${site3})`;
   }
 }
 function zoomToSelectedTrack() {
@@ -1828,4 +1860,61 @@ function zoomToSelectedTrack() {
       maxZoom: 12
     });
   }
+}
+
+function renderDetailsPanel(record) {
+  const panel = document.getElementById('trackDetailsPanel');
+  if (!panel) return;
+
+  if (!record || record.source === 'SPC') {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  const titleEl = document.getElementById('detailsTitle');
+  const subEl = document.getElementById('detailsSubtitle');
+  const tbody = document.getElementById('detailsTableBody');
+  const overviewSec = document.getElementById('detailsOverviewSection');
+  const overviewText = document.getElementById('detailsOverviewText');
+
+  if (titleEl) titleEl.textContent = record.reportId || record.id || 'Tornado Record';
+  if (subEl) subEl.textContent = `${record.state || ''} • ${record.beginDate || ''} • EF/F${record.magnitude ?? 'N/A'}`;
+
+  // Narrative overview
+  const narrative = record.details || record.overview;
+  if (overviewSec && overviewText) {
+    if (narrative && narrative.trim()) {
+      overviewText.textContent = narrative.trim();
+      overviewSec.classList.remove('hidden');
+    } else {
+      overviewSec.classList.add('hidden');
+    }
+  }
+
+  // Build the complete key-value table
+  if (tbody) {
+    const rawData = record._raw || record;
+    const skipKeys = new Set(['_raw', 'details', 'overview']);
+    
+    tbody.innerHTML = Object.entries(rawData)
+      .filter(([k, v]) => !skipKeys.has(k) && v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([key, value]) => `
+        <tr>
+          <th>${escapeHtml(key)}</th>
+          <td>${escapeHtml(String(value))}</td>
+        </tr>
+      `).join('');
+  }
+
+  panel.classList.remove('hidden');
+}
+
+function hideDetailsPanel() {
+  const panel = document.getElementById('trackDetailsPanel');
+  if (panel) panel.classList.add('hidden');
+}
+
+function escapeHtml(text) {
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return String(text).replace(/[&<>"']/g, (m) => map[m]);
 }

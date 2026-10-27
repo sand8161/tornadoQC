@@ -229,6 +229,28 @@
           </form>
         </section>
       </main>
+      <!-- Dedicated CSV Track Details Panel -->
+      <aside id="trackDetailsPanel" class="details-panel hidden">
+        <div class="details-header">
+          <div>
+            <h2 id="detailsTitle">Track Details</h2>
+            <span id="detailsSubtitle" class="details-subtitle"></span>
+          </div>
+          <button id="closeDetailsBtn" type="button" class="secondary" title="Close Panel">&times;</button>
+        </div>
+        <div class="details-content">
+          <div id="detailsOverviewSection" class="hidden">
+            <h3 class="details-section-title">Narrative Overview</h3>
+            <p id="detailsOverviewText" class="details-overview"></p>
+          </div>
+          <h3 class="details-section-title">Record Attributes</h3>
+          <div class="details-table-wrapper">
+            <table class="details-table">
+              <tbody id="detailsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
