@@ -664,7 +664,10 @@ function renderFilteredData(options = {}) {
     });
   }
 
-  const filtered = [...primaryRows, ...spcRows];
+  const filtered = [
+    ...(state.nceiLayerVisible ? primaryRows : []),
+    ...(state.spcLayerVisible ? spcRows : []),
+  ];
   state.filtered = filtered;
   if (state.polyLines) state.polyLines.clear();
 
@@ -693,10 +696,12 @@ function renderFilteredData(options = {}) {
     const color = magnitudeColor(row.magnitude);
     const startPoint = [row.beginLatitude, row.beginLongitude];
     const endPoint = [row.endLatitude, row.endLongitude];
+    const layerOpacity = isSpc ? state.spcOpacity : state.nceiOpacity;
+
     const polyline = L.polyline([startPoint, endPoint], {
       color,
       weight: row.id === state.selectedId ? 6 : 3,
-      opacity: (isSpc ? state.spcOpacity : state.nceiLayerVisible ? 0.8 : 0) * (state.nceiLayerVisible || isSpc ? 1 : 0),
+      opacity: layerOpacity,
       lineCap: 'round',
       dashArray: isSpc ? '8 8' : null,
     });
@@ -713,8 +718,9 @@ function renderFilteredData(options = {}) {
       radius: 4,
       color: '#f8fafc',
       fillColor: color,
-      fillOpacity: (isSpc ? state.spcOpacity : state.nceiLayerVisible ? 0.8 : 0),
+      fillOpacity: layerOpacity,
       weight: 1,
+      opacity: layerOpacity,
     });
     startMarker.bindPopup(buildPopup(row));
     startMarker.on('click', async (event) => {
@@ -1055,7 +1061,7 @@ function updateSpcControls() {
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   if (spcToggleButton) {
-    spcToggleButton.textContent = state.spcLayerVisible ? '⭕️' : '🚫';
+    spcToggleButton.textContent = state.spcLayerVisible ? '👁' : '🚫';
     spcToggleButton.classList.toggle('active', state.spcLayerVisible);
   }
 
@@ -1976,26 +1982,44 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (m) => map[m]);
 }
 
-async function loadCountyBoundaries() {
+function resolveAssetUrl(relativePath) {
+  const normalized = String(relativePath || '').replace(/\\/g, '/');
+  if (!normalized) return normalized;
+
   try {
-    // Parses zipped shapefile or the prefix path if extracted
-    const geojson = await shp('./cb_2018_us_county_5m/cb_2018_us_county_5m.shp');
+    return new URL(normalized, window.location.href).href;
+  } catch {
+    const safe = normalized.replace(/^\.\//, '').replace(/^\//, '');
+    return `${window.location.origin}/${safe}`;
+  }
+}
+
+async function loadCountyBoundaries() {
+  const basePath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
+
+  try {
+    if (window.location.protocol === 'file:') {
+      console.warn('County boundaries are not available from a file:// page. Use a local web server or GitHub Pages.');
+      return;
+    }
+
+    const shpUrl = resolveAssetUrl(`${basePath}.shp`);
+    const geojson = await shp(shpUrl);
 
     L.geoJSON(geojson, {
       pane: 'countyPane',
       style: {
-        color: '#64748b',       // Neutral slate boundary
+        color: '#64748b',
         weight: 1,
         opacity: 0.55,
         fillColor: 'transparent',
         fillOpacity: 0,
-        interactive: false      // Disables pointer interception so you can click tornado tracks underneath
+        interactive: false
       }
     }).addTo(state.map);
   } catch (err) {
-    // If not zipped, try loading from the directory directly
     try {
-      const geojsonDir = await shp('./cb_2018_us_county_5m/cb_2018_us_county_5m');
+      const geojsonDir = await shp(resolveAssetUrl(basePath));
       L.geoJSON(geojsonDir, {
         pane: 'countyPane',
         style: {
