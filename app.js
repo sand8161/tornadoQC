@@ -287,59 +287,51 @@ function bindControls() {
 
   // Time scrubber and step buttons
   const radarSlider = document.getElementById('radarTimeSlider');
-  const radarOffsetLabel = document.getElementById('radarOffsetLabel');
   const stepBackBtn = document.getElementById('radarStepBackBtn');
   const stepFwdBtn = document.getElementById('radarStepFwdBtn');
 
-  function updateSliderUI(val) {
-    state.radarOffsetMinutes = val;
-    if (radarSlider) radarSlider.value = val;
-    if (radarOffsetLabel) radarOffsetLabel.textContent = (val > 0 ? '+' : '') + val + ' min';
-  }
-
-  if (radarSlider && radarOffsetLabel) {
+  if (radarSlider) {
     radarSlider.addEventListener('input', (e) => {
-      updateSliderUI(parseInt(e.target.value, 10));
-    });
-    radarSlider.addEventListener('change', () => {
+      state.radarScanIndex = parseInt(e.target.value, 10);
       updateIemRadar();
     });
   }
 
   if (stepBackBtn) {
     stepBackBtn.addEventListener('click', () => {
-      const newVal = Math.max(-60, state.radarOffsetMinutes - 1);
-      updateSliderUI(newVal);
-      updateIemRadar();
+      if (state.radarScans && state.radarScanIndex > 0) {
+        state.radarScanIndex--;
+        if (radarSlider) radarSlider.value = state.radarScanIndex;
+        updateIemRadar();
+      }
     });
   }
 
   if (stepFwdBtn) {
     stepFwdBtn.addEventListener('click', () => {
-      const newVal = Math.min(60, state.radarOffsetMinutes + 1);
-      updateSliderUI(newVal);
-      updateIemRadar();
+      if (state.radarScans && state.radarScanIndex < state.radarScans.length - 1) {
+        state.radarScanIndex++;
+        if (radarSlider) radarSlider.value = state.radarScanIndex;
+        updateIemRadar();
+      }
     });
   }
 
-  // Keyboard arrow bindings for time scrubbing
+  // Keyboard Left / Right arrow navigation
   document.addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-      return;
-    }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const scrubber = document.getElementById('radarTimeScrubber');
-    if (!scrubber || scrubber.classList.contains('hidden') || state.radarType === 'off') {
-      return;
-    }
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault(); 
-      const newVal = Math.max(-60, state.radarOffsetMinutes - 5);
-      updateSliderUI(newVal);
+    if (!scrubber || scrubber.classList.contains('hidden') || state.radarType === 'off') return;
+
+    if (e.key === 'ArrowLeft' && state.radarScans && state.radarScanIndex > 0) {
+      e.preventDefault();
+      state.radarScanIndex--;
+      if (radarSlider) radarSlider.value = state.radarScanIndex;
       updateIemRadar();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault(); 
-      const newVal = Math.min(60, state.radarOffsetMinutes + 5);
-      updateSliderUI(newVal);
+    } else if (e.key === 'ArrowRight' && state.radarScans && state.radarScanIndex < state.radarScans.length - 1) {
+      e.preventDefault();
+      state.radarScanIndex++;
+      if (radarSlider) radarSlider.value = state.radarScanIndex;
       updateIemRadar();
     }
   });
@@ -651,7 +643,7 @@ function renderFilteredData(options = {}) {
     polyline.bindPopup(buildPopup(row));
     polyline.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, false);
+      await handleTrackSelection(row, true);
     });
     polyline.addTo(state.layerGroup);
     state.polyLines.set(row.id, polyline);
@@ -666,7 +658,7 @@ function renderFilteredData(options = {}) {
     startMarker.bindPopup(buildPopup(row));
     startMarker.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, false);
+      await handleTrackSelection(row, true);
     });
     startMarker.addTo(state.layerGroup);
 
@@ -733,18 +725,9 @@ async function handleTrackSelection(record, preserveMapView = true) {
     });
   }
 
-  // --- ZOOM TO SELECTED PATH ---
+  // Only zoom if preserveMapView is explicitly passed as false
   if (!preserveMapView && state.map) {
-    const start = [record.beginLatitude, record.beginLongitude];
-    const end = [record.endLatitude, record.endLongitude];
-    const trackBounds = L.latLngBounds([start, end]);
-
-    if (trackBounds.isValid()) {
-      state.map.fitBounds(trackBounds, {
-        padding: [60, 60],
-        maxZoom: 12 // Prevents over-zooming on short tracks or single-point paths
-      });
-    }
+    zoomToSelectedTrack();
   }
 
   const dateLabel = record.beginDate || record.endDate || 'this date';
@@ -1664,10 +1647,11 @@ async function fetchAwsRadar(record) {
   }
 }
 
-function updateIemRadar() {
+async function updateIemRadar() {
   const record = getSelectedRecord();
   const statusEl = document.getElementById('radarStatus');
   const scrubber = document.getElementById('radarTimeScrubber');
+  const offsetLabel = document.getElementById('radarOffsetLabel');
   
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
@@ -1693,56 +1677,122 @@ function updateIemRadar() {
 
   if (scrubber) scrubber.classList.remove('hidden');
 
-  let utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
-  utcDate.setMinutes(utcDate.getMinutes() + state.radarOffsetMinutes);
+  // Find nearest radar station
+  if (!state.radarStations || !state.radarStations.length) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
+    return;
+  }
 
-  const yyyy = utcDate.getUTCFullYear();
-  const mm = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(utcDate.getUTCDate()).padStart(2, '0');
-  const hh = String(utcDate.getUTCHours()).padStart(2, '0');
-  const min = String(utcDate.getUTCMinutes()).padStart(2, '0');
+  let nearest = null;
+  let minDst = Infinity;
+  for (const station of state.radarStations) {
+    const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
+    if (d < minDst) {
+      minDst = d;
+      nearest = station;
+    }
+  }
 
-  if (state.radarType === 'reflectivity' || state.radarType === 'velocity') {
-    if (!state.radarStations || !state.radarStations.length) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
+  const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
+  const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0S';
+  const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SRV Velocity';
+
+  // --- QUERY IEM JSON CATALOG FOR VALID TIMESTAMPS ---
+  const trackKey = `${record.id}_${state.radarType}_${site3}`;
+  if (state.radarRecordId !== trackKey) {
+    if (statusEl) statusEl.textContent = `Finding ${site3} scans...`;
+
+    const targetDate = new Date(`${dateStr}T${timeStr}:00Z`);
+    // Create a 2-hour window (+/- 60 min) formatted as YYYY-MM-DDTHH:MMZ
+    const startIso = new Date(targetDate.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
+    const endIso = new Date(targetDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
+
+    const listUrl = `https://mesonet.agron.iastate.edu/json/radar.py?operation=list&radar=${site3}&product=${product}&start=${startIso}&end=${endIso}`;
+
+    try {
+      const resp = await fetch(listUrl);
+      const data = await resp.json();
+      
+      // Extract array of exact scan timestamps: ["2025-04-24T00:03Z", "2025-04-24T00:08Z", ...]
+      const scans = (data.scans || []).map(s => s.ts);
+
+      if (!scans.length) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">No ${typeLabel} scans found for ${site3} in this timeframe.</span>`;
+        return;
+      }
+
+      state.radarScans = scans;
+      state.radarRecordId = trackKey;
+
+      // Select the scan closest to tornado start time
+      const targetMs = targetDate.getTime();
+      let bestIdx = 0;
+      let minDiff = Infinity;
+      scans.forEach((ts, idx) => {
+        const diff = Math.abs(new Date(ts).getTime() - targetMs);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = idx;
+        }
+      });
+      state.radarScanIndex = bestIdx;
+
+      // Adjust the slider range to step by index (0, 1, 2, ... totalScans - 1)
+      const slider = document.getElementById('radarTimeSlider');
+      if (slider) {
+        slider.min = "0";
+        slider.max = String(scans.length - 1);
+        slider.step = "1";
+        slider.value = String(bestIdx);
+      }
+    } catch (err) {
+      console.warn('IEM radar list fetch error', err);
+      if (statusEl) statusEl.textContent = 'Failed to retrieve scan index from IEM.';
       return;
     }
+  }
 
-    let nearest = null;
-    let minDst = Infinity;
-    for (const station of state.radarStations) {
-      const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
-      if (d < minDst) {
-        minDst = d;
-        nearest = station;
-      }
-    }
+  // --- RENDER CURRENT REAL SCAN ---
+  if (!state.radarScans || !state.radarScans.length) return;
 
-    const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
-    const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0U';
-    const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
-    const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
+  const currentTs = state.radarScans[state.radarScanIndex];
+  const scanDate = new Date(currentTs);
 
-    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
-      layers: 'single-archive',
-      format: 'image/png',
-      transparent: true,
-      sector: site3,
-      prod: product,
-      append: 'bottom',
-      year: yyyy,
-      month: mm,
-      day: dd,
-      time: hh + min,
-      fullTime: fullTimeParam,
-      uppercase: false,
-      opacity: 0.65,
-      zIndex: 200,
-      tileSize: 1024,
-      updateWhenIdle: true
-    });
+  const yyyy = scanDate.getUTCFullYear();
+  const mm = String(scanDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(scanDate.getUTCDate()).padStart(2, '0');
+  const hh = String(scanDate.getUTCHours()).padStart(2, '0');
+  const min = String(scanDate.getUTCMinutes()).padStart(2, '0');
 
-    state.radarLayer.addTo(state.map);
-    if (statusEl) statusEl.textContent = `Showing ${typeLabel} (${site3}) for ~${hh}:${min} UTC`;
+  // Format fullTime parameter matching the working request
+  const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
+
+  if (offsetLabel) {
+    offsetLabel.textContent = `${hh}:${min} UTC (${state.radarScanIndex + 1}/${state.radarScans.length})`;
+  }
+
+  state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
+    layers: 'single-archive',
+    format: 'image/png',
+    transparent: true,
+    sector: site3,
+    prod: product,
+    append: 'bottom',
+    year: yyyy,
+    month: mm,
+    day: dd,
+    time: hh + min,
+    fullTime: fullTimeParam,
+    uppercase: false,
+    opacity: 0.65,
+    zIndex: 200,
+    tileSize: 1024,
+    updateWhenIdle: true
+  });
+
+  state.radarLayer.addTo(state.map);
+
+  if (statusEl) {
+    statusEl.textContent = `Showing ${typeLabel} (${site3}) • ${hh}:${min} UTC`;
   }
 }

@@ -115,9 +115,12 @@
         <div id="status" class="status-banner">Loading NOAA Storm Prediction Center dataset…</div>
 
         <section class="editor-panel">
-          <div class="editor-header">
+        <div class="editor-header">
             <h2>QC editor</h2>
-            <button id="clearSelection" type="button" class="secondary">Clear selection</button>
+            <div style="display: flex; gap: 6px;">
+              <button id="zoomToTrackBtn" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Zoom to path</button>
+              <button id="clearSelection" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Clear selection</button>
+            </div>
             <button id="saveChanges" type="button" class="primary">Save changes</button>
           </div>
 
