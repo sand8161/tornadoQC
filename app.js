@@ -1706,6 +1706,7 @@ function updateIemRadar() {
     const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
     const product = state.radarType === 'reflectivity' ? 'N0Q' : 'N0V';
     const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
+    const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
 
     state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
       layers: 'single-archive',
@@ -1713,10 +1714,13 @@ function updateIemRadar() {
       transparent: true,
       sector: site3,
       prod: product,
+      append: 'bottom',
       year: yyyy,
       month: mm,
       day: dd,
       time: hh + min,
+      fullTime: fullTimeParam,
+      uppercase: false,
       opacity: 0.65,
       zIndex: 200,
       tileSize: 1024,
