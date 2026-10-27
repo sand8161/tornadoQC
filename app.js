@@ -1607,6 +1607,7 @@ async function fetchAwsRadar(record) {
     radarEl.innerHTML = `<em>Failed to query AWS bucket for ${nearest.id}.</em>`;
   }
 }
+
 function updateIemRadar() {
   const record = getSelectedRecord();
   const statusEl = document.getElementById('radarStatus');
@@ -1617,7 +1618,6 @@ function updateIemRadar() {
     state.radarLayer = null;
   }
 
-  // Only run for primary CSV or SPC reports
   const isPrimaryTrack = record && (record.source === 'CSV' || record.source === 'SPC');
 
   if (state.radarType === 'off' || !isPrimaryTrack) {
@@ -1637,38 +1637,69 @@ function updateIemRadar() {
 
   if (scrubber) scrubber.classList.remove('hidden');
 
-  // Times are already UTC, so we construct the date directly
   let utcDate = new Date(`${dateStr}T${timeStr}:00Z`);
-  
-  // Apply the slider offset
   utcDate.setMinutes(utcDate.getMinutes() + state.radarOffsetMinutes);
 
-  const timeParam = utcDate.toISOString().replace('.000Z', 'Z'); 
+  // Snap to the nearest 5-minute interval
+  const coeff = 1000 * 60 * 5;
+  utcDate = new Date(Math.round(utcDate.getTime() / coeff) * coeff);
 
-  let wmsUrl = '';
-  let layerName = '';
+  const yyyy = utcDate.getUTCFullYear();
+  const mm = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(utcDate.getUTCDate()).padStart(2, '0');
+  const hh = String(utcDate.getUTCHours()).padStart(2, '0');
+  const min = String(utcDate.getUTCMinutes()).padStart(2, '0');
+  const timeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00Z`;
 
   if (state.radarType === 'reflectivity') {
-    wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
-    layerName = 'nexrad-n0q-wmst'; 
+    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi', {
+      layers: 'nexrad-n0q-wmst',
+      format: 'image/png',
+      transparent: true,
+      time: timeParam,
+      opacity: 0.65,
+      zIndex: 200,
+      uppercase: true 
+    });
+    
+    state.radarLayer.addTo(state.map);
+    if (statusEl) statusEl.textContent = `Showing Reflectivity for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
+    
   } else if (state.radarType === 'velocity') {
-    wmsUrl = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0u-t.cgi';
-    layerName = 'nexrad-n0u-wmst'; 
-  }
+    // Single-site velocity requires finding the nearest radar
+    if (!state.radarStations || !state.radarStations.length) {
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
+      return;
+    }
 
-  state.radarLayer = L.tileLayer.wms(wmsUrl, {
-    layers: layerName,
-    format: 'image/png',
-    transparent: true,
-    time: timeParam,
-    opacity: 0.65,
-    zIndex: 200 
-  });
+    let nearest = null;
+    let minDst = Infinity;
+    for (const station of state.radarStations) {
+      const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
+      if (d < minDst) {
+        minDst = d;
+        nearest = station;
+      }
+    }
 
-  state.radarLayer.addTo(state.map);
-  
-  if (statusEl) {
-    const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'Velocity';
-    statusEl.textContent = `Showing ${typeLabel} for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
+    // IEM RIDGE uses 3-letter IDs for CONUS sites (e.g., KTLX -> TLX)
+    const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
+
+    state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
+      layers: 'single-archive',
+      format: 'image/png',
+      transparent: true,
+      sector: site3,
+      prod: 'N0V', // N0V = Base Velocity, N0S = Storm Relative Velocity
+      year: yyyy,
+      month: mm,
+      day: dd,
+      time: hh + min, // Format must be HHMM
+      opacity: 0.65,
+      zIndex: 200
+    });
+
+    state.radarLayer.addTo(state.map);
+    if (statusEl) statusEl.textContent = `Showing Velocity (${site3}) for ~${timeParam.slice(0, 16).replace('T', ' ')} UTC`;
   }
 }
