@@ -227,6 +227,42 @@ function bindControls() {
   const yearStartInput = document.getElementById('yearStartInput');
   const yearEndInput = document.getElementById('yearEndInput');
   const singleYearBtn = document.getElementById('singleYearBtn');
+  const yearRangeToggleBtn = document.getElementById('yearRangeToggleBtn');
+  const yearEndMini = document.querySelector('.year-end-mini');
+  const yearEndSlider = document.getElementById('yearEndSlider');
+  const yearEndSliderWrap = document.querySelector('.year-end-slider');
+  const yearStartSlider = document.getElementById('yearStartSlider');
+
+  const syncYearRangeVisibility = () => {
+    const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
+    if (yearEndMini) yearEndMini.classList.toggle('hidden', !showEndYear);
+    if (yearEndSliderWrap) yearEndSliderWrap.classList.toggle('hidden', !showEndYear);
+    if (yearRangeToggleBtn) {
+      yearRangeToggleBtn.textContent = showEndYear ? 'Range on' : 'Range';
+      yearRangeToggleBtn.classList.toggle('active', showEndYear);
+    }
+  };
+
+  const applyYearRangeState = (nextMin, nextMax, triggerRender = true) => {
+    const minYear = Number(yearStartInput?.min || 1950);
+    const maxYear = Number(yearStartInput?.max || 2026);
+    const safeMin = Math.min(Math.max(nextMin, minYear), maxYear);
+    const safeMax = Math.min(Math.max(nextMax, minYear), maxYear);
+    state.yearMin = Math.min(safeMin, safeMax);
+    state.yearMax = Math.max(safeMin, safeMax);
+
+    if (yearStartInput) yearStartInput.value = String(state.yearMin);
+    if (yearEndInput) yearEndInput.value = String(state.yearMax);
+    if (yearStartSlider) yearStartSlider.value = String(state.yearMin);
+    if (yearEndSlider) yearEndSlider.value = String(state.yearMax);
+    if (yearMinInput) yearMinInput.value = String(state.yearMin);
+    if (yearMaxInput) yearMaxInput.value = String(state.yearMax);
+
+    updateFilterReadouts();
+    if (triggerRender) {
+      renderFilteredData({ preserveMapView: true });
+    }
+  };
 
   if (spcToggleButton) {
     spcToggleButton.addEventListener('click', () => {
@@ -305,6 +341,8 @@ function bindControls() {
       }
       yearStartInput.value = String(state.yearMin);
       yearEndInput.value = String(state.yearMax);
+      if (yearStartSlider) yearStartSlider.value = String(state.yearMin);
+      if (yearEndSlider) yearEndSlider.value = String(state.yearMax);
       if (yearMinInput) yearMinInput.value = String(state.yearMin);
       if (yearMaxInput) yearMaxInput.value = String(state.yearMax);
       updateFilterReadouts();
@@ -312,8 +350,8 @@ function bindControls() {
 
     yearStartInput.addEventListener('change', () => {
       const value = Number(yearStartInput.value);
-      const minYear = Number(yearMinInput?.min || 1950);
-      const maxYear = Number(yearMaxInput?.max || 2025);
+      const minYear = Number(yearStartInput.min || 1950);
+      const maxYear = Number(yearStartInput.max || 2025);
       const nextValue = Math.min(Math.max(value, minYear), maxYear);
       state.yearMin = nextValue;
       if (state.yearMin > state.yearMax) {
@@ -325,8 +363,8 @@ function bindControls() {
 
     yearEndInput.addEventListener('change', () => {
       const value = Number(yearEndInput.value);
-      const minYear = Number(yearMinInput?.min || 1950);
-      const maxYear = Number(yearMaxInput?.max || 2025);
+      const minYear = Number(yearEndInput.min || 1950);
+      const maxYear = Number(yearEndInput.max || 2025);
       const nextValue = Math.min(Math.max(value, minYear), maxYear);
       state.yearMax = nextValue;
       if (state.yearMax < state.yearMin) {
@@ -344,16 +382,39 @@ function bindControls() {
       state.yearMax = current;
       if (yearStartInput) yearStartInput.value = String(current);
       if (yearEndInput) yearEndInput.value = String(current);
+      if (yearStartSlider) yearStartSlider.value = String(current);
+      if (yearEndSlider) yearEndSlider.value = String(current);
       if (yearMinInput) yearMinInput.value = String(current);
       if (yearMaxInput) yearMaxInput.value = String(current);
+      yearRangeToggleBtn?.setAttribute('aria-expanded', 'false');
+      syncYearRangeVisibility();
       updateFilterReadouts();
       renderFilteredData({ preserveMapView: true });
     });
   }
 
-  const closeDetailsBtn = document.getElementById('closeDetailsBtn');
-  if (closeDetailsBtn) {
-    closeDetailsBtn.addEventListener('click', hideDetailsPanel);
+  if (yearRangeToggleBtn) {
+    yearRangeToggleBtn.addEventListener('click', () => {
+      const expanded = yearRangeToggleBtn.getAttribute('aria-expanded') === 'true';
+      yearRangeToggleBtn.setAttribute('aria-expanded', String(!expanded));
+      syncYearRangeVisibility();
+    });
+  }
+
+  if (yearStartSlider) {
+    yearStartSlider.addEventListener('input', (event) => {
+      const value = Number(event.target.value);
+      applyYearRangeState(value, state.yearMax, false);
+      syncYearRangeVisibility();
+    });
+  }
+
+  if (yearEndSlider) {
+    yearEndSlider.addEventListener('input', (event) => {
+      const value = Number(event.target.value);
+      applyYearRangeState(state.yearMin, value, false);
+      syncYearRangeVisibility();
+    });
   }
 
   if (clearButton) {
@@ -1084,6 +1145,9 @@ function updateFilterReadouts() {
   const yearRangeFill = document.getElementById('yearRangeFill');
   const yearStartInput = document.getElementById('yearStartInput');
   const yearEndInput = document.getElementById('yearEndInput');
+  const yearStartSlider = document.getElementById('yearStartSlider');
+  const yearEndSlider = document.getElementById('yearEndSlider');
+  const yearRangeToggleBtn = document.getElementById('yearRangeToggleBtn');
 
   if (yearMinInput && yearMaxInput) {
     yearMinInput.value = String(Math.min(Number(yearMinInput.value || state.yearMin), state.yearMax));
@@ -1094,9 +1158,11 @@ function updateFilterReadouts() {
 
   if (yearStartInput) yearStartInput.value = String(state.yearMin);
   if (yearEndInput) yearEndInput.value = String(state.yearMax);
+  if (yearStartSlider) yearStartSlider.value = String(state.yearMin);
+  if (yearEndSlider) yearEndSlider.value = String(state.yearMax);
 
   if (yearRangeValue) {
-    yearRangeValue.textContent = `${state.yearMin}–${state.yearMax}`;
+    yearRangeValue.textContent = state.yearMin === state.yearMax ? String(state.yearMin) : `${state.yearMin}–${state.yearMax}`;
   }
 
   if (yearRangeFill && yearMinInput && yearMaxInput) {
@@ -1113,6 +1179,11 @@ function updateFilterReadouts() {
 
   if (yearMinValue) yearMinValue.textContent = String(state.yearMin);
   if (yearMaxValue) yearMaxValue.textContent = String(state.yearMax);
+
+  if (yearRangeToggleBtn) {
+    const showEndYear = yearRangeToggleBtn.getAttribute('aria-expanded') === 'true';
+    yearRangeToggleBtn.textContent = showEndYear ? 'Range on' : 'Range';
+  }
 }
 
 function updateLayerControlStates() {
@@ -1330,21 +1401,45 @@ function refreshYearBounds(initLatest = false) {
 
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
+  const yearStartInput = document.getElementById('yearStartInput');
+  const yearEndInput = document.getElementById('yearEndInput');
+  const yearStartSlider = document.getElementById('yearStartSlider');
+  const yearEndSlider = document.getElementById('yearEndSlider');
   
   if (yearMinInput) {
     yearMinInput.min = String(dataMin);
     yearMinInput.max = String(dataMax);
-    if (initLatest) {
-      yearMinInput.value = String(dataMax);
-    }
+    yearMinInput.value = String(initLatest ? dataMax : dataMax);
   }
   
   if (yearMaxInput) {
     yearMaxInput.min = String(dataMin);
     yearMaxInput.max = String(dataMax);
-    if (initLatest) {
-      yearMaxInput.value = String(dataMax);
-    }
+    yearMaxInput.value = String(initLatest ? dataMax : dataMax);
+  }
+
+  if (yearStartInput) {
+    yearStartInput.min = String(dataMin);
+    yearStartInput.max = String(dataMax);
+    yearStartInput.value = String(dataMax);
+  }
+
+  if (yearEndInput) {
+    yearEndInput.min = String(dataMin);
+    yearEndInput.max = String(dataMax);
+    yearEndInput.value = String(dataMax);
+  }
+
+  if (yearStartSlider) {
+    yearStartSlider.min = String(dataMin);
+    yearStartSlider.max = String(dataMax);
+    yearStartSlider.value = String(dataMax);
+  }
+
+  if (yearEndSlider) {
+    yearEndSlider.min = String(dataMin);
+    yearEndSlider.max = String(dataMax);
+    yearEndSlider.value = String(dataMax);
   }
 
   state.yearMin = Number(yearMinInput?.value || dataMax);
@@ -1763,7 +1858,7 @@ async function fetchAwsRadar(record) {
   if (!state.radarStations.length) {
     radarEl.innerHTML = '<em>Radar station list unavailable.</em>';
     return;
-  }
+   }
 
   // Find nearest radar
   let nearest = null;

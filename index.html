@@ -31,32 +31,42 @@
         <div class="filters">
           <div class="filter-row">
             <label>Year range</label>
-            <span id="yearRangeValue">1950–2025</span>
-          </div>
-
-          <div class="range-slider" aria-label="Year range filter">
-            <div class="range-track"></div>
-            <div class="range-fill" id="yearRangeFill"></div>
-            <input id="yearMin" type="range" min="1950" max="2025" value="1950" />
-            <input id="yearMax" type="range" min="1950" max="2025" value="2025" />
+            <div class="year-toggle-row">
+              <button id="yearRangeToggleBtn" type="button" class="secondary year-range-toggle" aria-expanded="false" aria-controls="yearRangeControls">Range</button>
+            </div>
+            <span id="yearRangeValue">1950–2026</span>
           </div>
 
           <div class="range-labels">
             <span id="yearMinValue">1950</span>
-            <span id="yearMaxValue">2025</span>
+            <span id="yearMaxValue">2026</span>
           </div>
 
           <div class="year-manual-controls">
             <label class="year-mini">
               <span>Start</span>
-              <input id="yearStartInput" type="number" min="1950" max="2025" step="1" value="1950" />
+              <input id="yearStartInput" type="number" min="1950" max="2026" step="1" value="1950" />
             </label>
-            <button id="singleYearBtn" type="button" class="secondary" style="width: auto; min-width: 110px; padding: 8px 10px;">Single year</button>
-            <label class="year-mini">
+            <button id="singleYearBtn" type="button" class="secondary" style="width: auto; min-width: 110px; padding: 4px 5px;">1 yr</button>
+            <label class="year-mini year-end-mini hidden">
               <span>End</span>
-              <input id="yearEndInput" type="number" min="1950" max="2025" step="1" value="2025" />
+              <input id="yearEndInput" type="number" min="1950" max="2026" step="1" value="2026" />
             </label>
           </div>
+
+          <div class="year-mini-sliders">
+            <label class="mini-slider-label">
+              <span>Start</span>
+              <input id="yearStartSlider" type="range" min="1950" max="2026" step="1" value="1950" />
+            </label>
+            <label class="mini-slider-label year-end-slider hidden">
+              <span>End</span>
+              <input id="yearEndSlider" type="range" min="1950" max="2026" step="1" value="2026" />
+            </label>
+          </div>
+
+          <input id="yearMin" type="hidden" min="1950" max="2026" value="1950" />
+          <input id="yearMax" type="hidden" min="1950" max="2026" value="2026" />
         </div>
 
         <!-- Collapsible Layers Menu -->
