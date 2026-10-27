@@ -679,8 +679,8 @@ function renderFilteredData(options = {}) {
   }
 
   const filtered = [
-    ...(state.nceiLayerVisible ? primaryRows : []),
     ...(state.spcLayerVisible ? spcRows : []),
+    ...(state.nceiLayerVisible ? primaryRows : []),
   ];
   state.filtered = filtered;
   if (state.polyLines) state.polyLines.clear();
@@ -1797,12 +1797,11 @@ async function updateIemRadar() {
 
   const dateStr = normalizeDateString(record.beginDate || record.endDate);
   const timeStr = normalizeTimeString(record.beginTime || '00:00');
-  
-  if (!dateStr || Number(dateStr.slice(0, 4)) < 1995) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar archive unavailable before 1995.</span>';
-    if (scrubber) scrubber.classList.add('hidden');
-    return;
-  }
+  const timeInfo = getSpcRadarTimeInfo(record);
+  const radarDateStr = timeInfo.dateStr || dateStr;
+  const radarTimeStr = timeInfo.timeStr || timeStr;
+
+  const targetDate = timeInfo.utcDate || new Date(`${radarDateStr}T${radarTimeStr}:00Z`);
 
   if (scrubber) scrubber.classList.remove('hidden');
 
@@ -1831,7 +1830,6 @@ async function updateIemRadar() {
   if (state.radarRecordId !== trackKey) {
     if (statusEl) statusEl.textContent = `Finding ${site3} scans...`;
 
-    const targetDate = new Date(`${dateStr}T${timeStr}:00Z`);
     const startIso = new Date(targetDate.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
     const endIso = new Date(targetDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
 
@@ -1850,7 +1848,7 @@ async function updateIemRadar() {
       }
 
       state.radarScans = scans;
-           state.radarRecordId = trackKey;
+                                       state.radarRecordId = trackKey;
 
       const targetMs = targetDate.getTime();
       let bestIdx = 0;
@@ -2097,4 +2095,26 @@ function renderCountyLabels() {
   if (!labels.length) return;
 
   state.countyLabelsLayer = L.layerGroup(labels).addTo(state.map);
+}
+
+function getSpcRadarTimeInfo(record) {
+  const dateStr = normalizeDateString(record.beginDate || record.endDate);
+  const timeStr = normalizeTimeString(record.beginTime || '00:00');
+  if (!dateStr || !timeStr) return { dateStr, timeStr, offsetMinutes: 0 };
+
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute] = timeStr.split(':').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+  const localOffsetMinutes = new Date(year, month - 1, day, hour, minute).getTimezoneOffset();
+  const utcDate = new Date(parsed.getTime() - localOffsetMinutes * 60 * 1000);
+  const utcMinutes = Math.round((utcDate.getTime() - Date.UTC(year, month - 1, day, 0, 0)) / 60000);
+
+  return {
+    dateStr,
+    timeStr,
+    offsetMinutes: localOffsetMinutes,
+    utcDate,
+    utcMinutes,
+  };
 }

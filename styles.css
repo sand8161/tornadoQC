@@ -66,6 +66,8 @@ body {
   border-radius: 18px;
   backdrop-filter: blur(12px);
   box-shadow: 0 20px 35px rgba(15, 23, 42, 0.25);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .branding {
@@ -503,8 +505,8 @@ textarea {
 .layer-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 0;
+  gap: 6px;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -560,25 +562,22 @@ textarea {
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.layer-eye.active {
-  background: rgba(59, 130, 246, 0.18);
-  border-color: rgba(96, 165, 250, 0.7);
-  color: var(--accent);
-}
-
-.layer-eye.active::before {
-  transform: translateX(31px);
-  background: rgba(255, 255, 255, 0.96);
-}
-
 .layer-eye {
   padding-left: 28px;
   padding-right: 10px;
 }
 
 .layer-eye.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(96, 165, 250, 0.7);
+  color: var(--accent);
   padding-left: 10px;
   padding-right: 28px;
+}
+
+.layer-eye.active::before {
+  transform: translateX(31px);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .layer-eye[aria-label*="Hide"] {
@@ -592,7 +591,7 @@ textarea {
 .layer-controls {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .opacity-row {
@@ -601,15 +600,14 @@ textarea {
   gap: 10px;
   color: var(--muted);
   font-size: 0.72rem;
-}
-
-.opacity-row span {
-  white-space: nowrap;
+  margin: 0;
+  min-height: 22px;
 }
 
 .opacity-row input[type="range"] {
   flex: 1;
   margin: 0;
+  height: 22px;
 }
 
 .county-name-label {
