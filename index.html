@@ -58,7 +58,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NCEI Reports</span>
-                <button id="nceiLayerToggle" type="button" class="layer-eye active" aria-label="Toggle NCEI layer" title="Toggle NCEI layer">👁</button>
+                <button id="nceiLayerToggle" type="button" class="layer-eye active" aria-label="Hide NCEI layer" title="Hide NCEI layer">View</button>
               </div>
               <label class="opacity-row">
                 <span>Opacity</span>
@@ -69,7 +69,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">SPC Reports</span>
-                <button id="spcToggle" type="button" class="layer-eye active" aria-label="Toggle SPC layer" title="Toggle SPC layer">👁</button>
+                <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">View</button>
               </div>
               <div class="layer-controls">
                 <button id="spcMultiCountyBtn" type="button" class="secondary" style="font-size: 0.75rem;">All counties</button>
@@ -83,7 +83,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NOAA DAT Survey</span>
-                <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Toggle DAT layer" title="Toggle DAT layer">👁</button>
+                <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">View</button>
               </div>
               <div class="layer-controls">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
@@ -116,6 +116,10 @@
                   <input id="radarTimeSlider" type="range" min="0" max="0" step="1" value="0" style="flex-grow: 1; cursor: pointer; margin: 0;" />
                   <button id="radarStepFwdBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="Next Scan">&raquo;</button>
                 </div>
+                <label class="opacity-row" style="margin-top: 8px;">
+                  <span>Radar opacity</span>
+                  <input id="radarOpacity" type="range" min="0.1" max="1" step="0.05" value="0.65" />
+                </label>
               </div>
 
               <div id="radarStatus" style="font-size: 0.75rem; color: var(--muted); margin-top: 6px; text-align: center;"></div>

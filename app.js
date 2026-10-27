@@ -29,11 +29,15 @@ const state = {
   datPolygonsVisible: true,
   radarStations: [],
   datRenderers: {},
+  countyLabelsLayer: null,
+  countyLayer: null,
   radarLayer: null,
   radarType: 'off', // 'off', 'reflectivity', or 'velocity'
+  radarOpacity: 0.65,
   radarOffsetMinutes: 0,
   baseTileLayer: null,
   theme: 'dark',
+  radarRequestToken: 0,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -340,6 +344,16 @@ function bindControls() {
   const radarSlider = document.getElementById('radarTimeSlider');
   const stepBackBtn = document.getElementById('radarStepBackBtn');
   const stepFwdBtn = document.getElementById('radarStepFwdBtn');
+  const radarOpacityInput = document.getElementById('radarOpacity');
+
+  if (radarOpacityInput) {
+    radarOpacityInput.addEventListener('input', (event) => {
+      state.radarOpacity = Number(event.target.value);
+      if (state.radarLayer) {
+        state.radarLayer.setOpacity(state.radarOpacity);
+      }
+    });
+  }
 
   if (radarSlider) {
     radarSlider.addEventListener('input', (e) => {
@@ -1040,20 +1054,19 @@ function updateFilterReadouts() {
 function updateLayerControlStates() {
   const nceiToggle = document.getElementById('nceiLayerToggle');
   const datToggle = document.getElementById('datLayerToggle');
-  if (nceiToggle) {
-    nceiToggle.textContent = state.nceiLayerVisible ? '👁' : '🚫';
-    nceiToggle.classList.toggle('active', state.nceiLayerVisible);
-  }
-  if (datToggle) {
-    datToggle.textContent = state.datLayerVisible ? '👁' : '🚫';
-    datToggle.classList.toggle('active', state.datLayerVisible);
-  }
-
   const spcToggle = document.getElementById('spcToggle');
-  if (spcToggle) {
-    spcToggle.textContent = state.spcLayerVisible ? '👁' : '🚫';
-    spcToggle.classList.toggle('active', state.spcLayerVisible);
-  }
+
+  const setToggleText = (button, visible) => {
+    if (!button) return;
+    button.textContent = visible ? 'View' : 'Hide';
+    button.classList.toggle('active', visible);
+    button.setAttribute('aria-label', visible ? 'Hide layer' : 'Show layer');
+    button.title = visible ? 'Hide layer' : 'Show layer';
+  };
+
+  if (nceiToggle) setToggleText(nceiToggle, state.nceiLayerVisible);
+  if (datToggle) setToggleText(datToggle, state.datLayerVisible);
+  if (spcToggle) setToggleText(spcToggle, state.spcLayerVisible);
 }
 
 function updateSpcControls() {
@@ -1061,7 +1074,7 @@ function updateSpcControls() {
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   if (spcToggleButton) {
-    spcToggleButton.textContent = state.spcLayerVisible ? '👁' : '🚫';
+    spcToggleButton.textContent = state.spcLayerVisible ? 'View' : 'Hide';
     spcToggleButton.classList.toggle('active', state.spcLayerVisible);
   }
 
@@ -1765,7 +1778,8 @@ async function updateIemRadar() {
   const statusEl = document.getElementById('radarStatus');
   const scrubber = document.getElementById('radarTimeScrubber');
   const offsetLabel = document.getElementById('radarOffsetLabel');
-  
+  const myRequestToken = ++state.radarRequestToken;
+
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
     state.radarLayer = null;
@@ -1816,7 +1830,6 @@ async function updateIemRadar() {
     if (statusEl) statusEl.textContent = `Finding ${site3} scans...`;
 
     const targetDate = new Date(`${dateStr}T${timeStr}:00Z`);
-    // Create a 2-hour window (+/- 60 min) formatted as YYYY-MM-DDTHH:MMZ
     const startIso = new Date(targetDate.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
     const endIso = new Date(targetDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
 
@@ -1825,8 +1838,8 @@ async function updateIemRadar() {
     try {
       const resp = await fetch(listUrl);
       const data = await resp.json();
-      
-      // Extract array of exact scan timestamps: ["2025-04-24T00:03Z", "2025-04-24T00:08Z", ...]
+      if (myRequestToken !== state.radarRequestToken) return;
+
       const scans = (data.scans || []).map(s => s.ts);
 
       if (!scans.length) {
@@ -1837,7 +1850,6 @@ async function updateIemRadar() {
       state.radarScans = scans;
       state.radarRecordId = trackKey;
 
-      // Select the scan closest to tornado start time
       const targetMs = targetDate.getTime();
       let bestIdx = 0;
       let minDiff = Infinity;
@@ -1850,22 +1862,22 @@ async function updateIemRadar() {
       });
       state.radarScanIndex = bestIdx;
 
-      // Adjust the slider range to step by index (0, 1, 2, ... totalScans - 1)
       const slider = document.getElementById('radarTimeSlider');
       if (slider) {
-        slider.min = "0";
+        slider.min = '0';
         slider.max = String(scans.length - 1);
-        slider.step = "1";
+        slider.step = '1';
         slider.value = String(bestIdx);
       }
     } catch (err) {
+      if (myRequestToken !== state.radarRequestToken) return;
       console.warn('IEM radar list fetch error', err);
       if (statusEl) statusEl.textContent = 'Failed to retrieve scan index from IEM.';
       return;
     }
   }
 
-  // --- RENDER CURRENT REAL SCAN ---
+  if (myRequestToken !== state.radarRequestToken) return;
   if (!state.radarScans || !state.radarScans.length) return;
 
   const currentTs = state.radarScans[state.radarScanIndex];
@@ -1877,14 +1889,13 @@ async function updateIemRadar() {
   const hh = String(scanDate.getUTCHours()).padStart(2, '0');
   const min = String(scanDate.getUTCMinutes()).padStart(2, '0');
 
-  // Format fullTime parameter matching the working request
   const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
 
   if (offsetLabel) {
     offsetLabel.textContent = `${hh}:${min} UTC (${state.radarScanIndex + 1}/${state.radarScans.length})`;
   }
 
-  state.radarLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
+  const nextLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
     layers: 'single-archive',
     format: 'image/png',
     transparent: true,
@@ -1897,18 +1908,25 @@ async function updateIemRadar() {
     time: hh + min,
     fullTime: fullTimeParam,
     uppercase: false,
-    opacity: 0.65,
+    opacity: state.radarOpacity,
     zIndex: 200,
     tileSize: 1024,
     updateWhenIdle: true
   });
 
+  if (myRequestToken !== state.radarRequestToken) return;
+
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+  }
+  state.radarLayer = nextLayer;
   state.radarLayer.addTo(state.map);
 
   if (statusEl) {
     statusEl.textContent = `${typeLabel} (${site3})`;
   }
 }
+
 function zoomToSelectedTrack() {
   const record = getSelectedRecord();
   if (!record || !state.map) return;
@@ -2035,4 +2053,46 @@ async function loadCountyBoundaries() {
       console.warn('Failed to load county shapefile:', err, dirErr);
     }
   }
+}
+
+function renderCountyLabels() {
+  if (state.countyLabelsLayer) {
+    state.map.removeLayer(state.countyLabelsLayer);
+    state.countyLabelsLayer = null;
+  }
+
+  if (!state.map || !window.L) return;
+
+  const labels = [];
+  const countyLayer = state.countyLayer;
+  if (!countyLayer || !countyLayer.getLayers) return;
+
+  countyLayer.getLayers().forEach((featureLayer) => {
+    const feature = featureLayer.feature;
+    if (!feature || !feature.properties || !feature.geometry) return;
+    const name = feature.properties.NAME || feature.properties.name || feature.properties.County || feature.properties.county;
+    if (!name) return;
+
+    const centroid = featureLayer.getBounds ? featureLayer.getBounds().getCenter() : null;
+    if (!centroid) return;
+
+    const label = L.marker([centroid.lat, centroid.lng], {
+      pane: 'countyPane',
+      opacity: 0,
+      interactive: false,
+      keyboard: false,
+      icon: L.divIcon({
+        className: 'county-name-label',
+        html: `<span>${name}</span>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+      })
+    });
+
+    labels.push(label);
+  });
+
+  if (!labels.length) return;
+
+  state.countyLabelsLayer = L.layerGroup(labels).addTo(state.map);
 }

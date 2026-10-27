@@ -529,17 +529,24 @@ textarea {
 
 .layer-eye {
   width: auto;
-  min-width: 32px;
-  padding: 4px 8px;
+  min-width: 48px;
+  padding: 4px 10px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 0.8rem;
-  line-height: 1;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
 }
 
 .layer-eye.active {
-  background: rgba(96, 165, 250, 0.12);
+  background: rgba(96, 165, 250, 0.14);
+  border-color: rgba(96, 165, 250, 0.5);
+  color: var(--accent);
 }
 
 .layer-controls {
@@ -563,6 +570,26 @@ textarea {
 .opacity-row input[type="range"] {
   flex: 1;
   margin: 0;
+}
+
+.county-name-label {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.county-name-label span {
+  display: inline-block;
+  padding: 1px 2px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  color: rgba(148, 163, 184, 0.9);
+  text-shadow: 0 1px 0 rgba(15, 23, 42, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 @media (max-width: 900px) {
