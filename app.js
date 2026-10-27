@@ -136,7 +136,7 @@ async function loadData() {
       throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
     }
 
-    refreshYearBounds();
+    refreshYearBounds(true);
     renderFilteredData({ preserveMapView: true });
     setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
   } catch (error) {
@@ -185,7 +185,7 @@ async function init() {
   updateSpcControls();
   applyTheme('dark');
   loadCountyBoundaries();
-  
+
   try {
     const rsResponse = await fetch('https://api.weather.gov/radar/stations?stationType=WSR-88D');
     const rsData = await rsResponse.json();
@@ -1175,7 +1175,7 @@ function getYearFromDate(dateValue) {
   return match ? Number(match[1]) : null;
 }
 
-function refreshYearBounds() {
+function refreshYearBounds(initLatest = false) {
   const rows = [...state.rows, ...state.spcRows];
   if (!rows.length) {
     state.yearMin = 1950;
@@ -1188,27 +1188,35 @@ function refreshYearBounds() {
     .filter((value) => Number.isFinite(value) && value > 0)
     .sort((a, b) => a - b);
 
+  let dataMin = 1950;
+  let dataMax = 2025;
+
   if (years.length) {
-    state.yearMin = years[0];
-    state.yearMax = years[years.length - 1];
+    dataMin = years[0];
+    dataMax = years[years.length - 1];
   }
 
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
   
   if (yearMinInput) {
-    yearMinInput.min = String(state.yearMin);
-    yearMinInput.max = String(state.yearMax);
-    yearMinInput.value = String(state.yearMin);
+    yearMinInput.min = String(dataMin);
+    yearMinInput.max = String(dataMax);
+    if (initLatest) {
+      yearMinInput.value = String(dataMax);
+    }
   }
+  
   if (yearMaxInput) {
-    yearMaxInput.min = String(state.yearMin);
-    yearMaxInput.max = String(state.yearMax);
-    yearMaxInput.value = String(state.yearMax);
+    yearMaxInput.min = String(dataMin);
+    yearMaxInput.max = String(dataMax);
+    if (initLatest) {
+      yearMaxInput.value = String(dataMax);
+    }
   }
 
-  state.yearMin = Number(yearMinInput?.value || state.yearMin);
-  state.yearMax = Number(yearMaxInput?.value || state.yearMax);
+  state.yearMin = Number(yearMinInput?.value || dataMax);
+  state.yearMax = Number(yearMaxInput?.value || dataMax);
   updateFilterReadouts();
 }
 
@@ -1250,7 +1258,7 @@ function buildPopup(row) {
   html += `</div>`;
 
   if (row.details) {
-    html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.8rem; color: #cbd5e1; max-height: 120px; overflow-y: auto;">
+    html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--muted); max-height: 120px; overflow-y: auto;">
       ${row.details}
     </div>`;
   }
