@@ -519,11 +519,11 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .layer-title {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
@@ -531,64 +531,10 @@ textarea {
 }
 
 .layer-eye {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 56px;
+  min-width: 58px;
   height: 22px;
-  padding: 0 10px 0 10px;
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 0.56rem;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  transition: all 0.2s ease;
-}
-
-.layer-eye::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
-  transition: left 0.2s ease, background 0.2s ease;
-}
-
-.layer-eye.active {
-  background: rgba(59, 130, 246, 0.18);
-  border-color: rgba(96, 165, 250, 0.7);
-  color: var(--accent);
-  justify-content: flex-start;
-  padding: 0 10px 0 10px;
-}
-
-.layer-eye.active::before {
-  left: auto;
-  right: 4px;
-  background: rgba(255, 255, 255, 0.96);
-}
-
-.layer-eye[aria-label*="Hide"] {
-  color: var(--muted);
-}
-
-.layer-eye[aria-label*="Show"] {
-  color: var(--accent);
-}
-
-.layer-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  padding: 0 10px;
+  font-size: 0.54rem;
 }
 
 .opacity-row {
@@ -596,9 +542,21 @@ textarea {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 0.5rem;
+  font-size: 0.53rem;
   margin: 0;
-  min-height: 15px;
+  min-height: 18px;
+}
+
+.opacity-row input[type="range"] {
+  flex: 1;
+  margin: 0;
+  height: 16px;
+}
+
+.layer-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .county-name-label {
@@ -665,7 +623,7 @@ body.theme-light .year-mini input {
 
 .year-mini-sliders {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 5px;
 }
@@ -696,14 +654,17 @@ body.theme-light .year-mini input {
 
 .layer-menu {
   overflow: visible;
+  min-height: 0;
 }
 
 .layer-menu[open] {
   overflow: visible;
+  min-height: 0;
 }
 
 .layer-menu > summary {
   list-style: none;
+  min-height: 0;
 }
 
 .layer-menu > summary::-webkit-details-marker {
@@ -712,6 +673,7 @@ body.theme-light .year-mini input {
 
 .layer-menu > div {
   display: block;
+  padding: 6px 8px 8px !important;
 }
 
 @media (max-width: 900px) {

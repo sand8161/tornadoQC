@@ -404,7 +404,7 @@ function bindControls() {
   if (yearStartSlider) {
     yearStartSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
-      applyYearRangeState(value, state.yearMax, false);
+      applyYearRangeState(value, state.yearMax, true);
       syncYearRangeVisibility();
     });
   }
@@ -412,7 +412,7 @@ function bindControls() {
   if (yearEndSlider) {
     yearEndSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
-      applyYearRangeState(state.yearMin, value, false);
+      applyYearRangeState(state.yearMin, value, true);
       syncYearRangeVisibility();
     });
   }
@@ -1858,7 +1858,7 @@ async function fetchAwsRadar(record) {
   if (!state.radarStations.length) {
     radarEl.innerHTML = '<em>Radar station list unavailable.</em>';
     return;
-   }
+     }
 
   // Find nearest radar
   let nearest = null;
