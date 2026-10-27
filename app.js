@@ -308,7 +308,7 @@ function bindControls() {
 
   if (stepBackBtn) {
     stepBackBtn.addEventListener('click', () => {
-      const newVal = Math.max(-60, state.radarOffsetMinutes - 5);
+      const newVal = Math.max(-60, state.radarOffsetMinutes - 1);
       updateSliderUI(newVal);
       updateIemRadar();
     });
@@ -316,7 +316,7 @@ function bindControls() {
 
   if (stepFwdBtn) {
     stepFwdBtn.addEventListener('click', () => {
-      const newVal = Math.min(60, state.radarOffsetMinutes + 5);
+      const newVal = Math.min(60, state.radarOffsetMinutes + 1);
       updateSliderUI(newVal);
       updateIemRadar();
     });
