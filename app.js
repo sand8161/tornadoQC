@@ -18,7 +18,12 @@ const state = {
   theme: 'dark',
   noaaDatMatches: [],
   spcLayerVisible: true,
+  spcOpacity: 0.8,
   spcMultiCountyOnly: false,
+  nceiLayerVisible: true,
+  nceiOpacity: 0.8,
+  datLayerVisible: true,
+  datOpacity: 0.9,
   datPointsVisible: true,
   datPathsVisible: true,
   datPolygonsVisible: true,
@@ -213,6 +218,53 @@ function bindControls() {
   const clearButton = document.getElementById('clearSelection');
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
+  const datLayerToggleButton = document.getElementById('datLayerToggle');
+  const nceiLayerToggleButton = document.getElementById('nceiLayerToggle');
+
+  if (spcToggleButton) {
+    spcToggleButton.addEventListener('click', () => {
+      state.spcLayerVisible = !state.spcLayerVisible;
+      updateSpcControls();
+      renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  if (nceiLayerToggleButton) {
+    nceiLayerToggleButton.addEventListener('click', () => {
+      state.nceiLayerVisible = !state.nceiLayerVisible;
+      updateLayerControlStates();
+      renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  if (datLayerToggleButton) {
+    datLayerToggleButton.addEventListener('click', () => {
+      state.datLayerVisible = !state.datLayerVisible;
+      updateLayerControlStates();
+      renderDatLayer(state.noaaDatMatches);
+    });
+  }
+
+  if (spcMultiCountyButton) {
+    spcMultiCountyButton.addEventListener('click', () => {
+      state.spcMultiCountyOnly = !state.spcMultiCountyOnly;
+      updateSpcControls();
+      renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  ['nceiOpacity', 'spcOpacity', 'datOpacity'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.addEventListener('input', (event) => {
+      const value = Number(event.target.value);
+      if (id === 'nceiOpacity') state.nceiOpacity = value;
+      if (id === 'spcOpacity') state.spcOpacity = value;
+      if (id === 'datOpacity') state.datOpacity = value;
+      renderFilteredData({ preserveMapView: true });
+      renderDatLayer(state.noaaDatMatches);
+    });
+  });
 
   if (yearMinInput && yearMaxInput) {
     yearMinInput.addEventListener('change', () => {
@@ -232,22 +284,6 @@ function bindControls() {
       }
       state.yearMax = parsed;
       updateFilterReadouts();
-      renderFilteredData({ preserveMapView: true });
-    });
-  }
-
-  if (spcToggleButton) {
-    spcToggleButton.addEventListener('click', () => {
-      state.spcLayerVisible = !state.spcLayerVisible;
-      updateSpcControls();
-      renderFilteredData({ preserveMapView: true });
-    });
-  }
-
-  if (spcMultiCountyButton) {
-    spcMultiCountyButton.addEventListener('click', () => {
-      state.spcMultiCountyOnly = !state.spcMultiCountyOnly;
-      updateSpcControls();
       renderFilteredData({ preserveMapView: true });
     });
   }
@@ -631,8 +667,7 @@ function renderFilteredData(options = {}) {
   const filtered = [...primaryRows, ...spcRows];
   state.filtered = filtered;
   if (state.polyLines) state.polyLines.clear();
-  
-  // Safely clear primary tornado track layers
+
   if (state.layerGroup) {
     state.layerGroup.clearLayers();
     if (!state.map.hasLayer(state.layerGroup)) {
@@ -640,12 +675,6 @@ function renderFilteredData(options = {}) {
     }
   }
 
-  // Redraw the existing DAT layers for the selected track instead of destroying them
-  if (state.selectedId && state.noaaDatMatches && state.noaaDatMatches.length) {
-    renderDatLayer(state.noaaDatMatches);
-  } else if (!state.selectedId && state.datLayerGroup) {
-    clearDatLayer(true);
-  }
   if (!filtered.length) {
     const trackCount = document.getElementById('trackCount');
     const maxMagnitude = document.getElementById('maxMagnitude');
@@ -667,7 +696,7 @@ function renderFilteredData(options = {}) {
     const polyline = L.polyline([startPoint, endPoint], {
       color,
       weight: row.id === state.selectedId ? 6 : 3,
-      opacity: row.id === state.selectedId ? 1 : 0.8,
+      opacity: (isSpc ? state.spcOpacity : state.nceiLayerVisible ? 0.8 : 0) * (state.nceiLayerVisible || isSpc ? 1 : 0),
       lineCap: 'round',
       dashArray: isSpc ? '8 8' : null,
     });
@@ -684,7 +713,7 @@ function renderFilteredData(options = {}) {
       radius: 4,
       color: '#f8fafc',
       fillColor: color,
-      fillOpacity: 1,
+      fillOpacity: (isSpc ? state.spcOpacity : state.nceiLayerVisible ? 0.8 : 0),
       weight: 1,
     });
     startMarker.bindPopup(buildPopup(row));
@@ -840,8 +869,8 @@ function clearDatLayer(clearData = false) {
 }
 
 function renderDatLayer(features) {
-  clearDatLayer(false); // Clear the visuals on map, but keep state.noaaDatMatches intact
-  if (!features || !features.length || !state.datLayerGroup) return;
+  clearDatLayer(false);
+  if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
 
   const layers = features
     .map((feature) => {
@@ -860,10 +889,8 @@ function renderDatLayer(features) {
         </div>
       `;
 
-      // 1. POINTS
       if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
         if (!state.datPointsVisible) return null;
-        
         const [lon, lat] = geometry.coordinates;
         const color = datColorByEf(efValue);
         const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
@@ -872,7 +899,7 @@ function renderDatLayer(features) {
           const marker = L.circleMarker([lat, lon], {
             pane: 'datPointsPane',
             renderer: state.datRenderers.points,
-            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: 1,
+            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: state.datOpacity,
           });
           marker.bindPopup(popupHtml);
           return marker;
@@ -883,33 +910,31 @@ function renderDatLayer(features) {
             iconSize: [14, 14],
             iconAnchor: [7, 7]
           });
-          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon });
+          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon, opacity: state.datOpacity });
           marker.bindPopup(popupHtml);
           return marker;
         }
       }
 
-      // 2. PATHS (LINES)
       if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
         if (!state.datPathsVisible) return null;
         const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
         const line = L.polyline(latLngs, {
           pane: 'datLinesPane',
           renderer: state.datRenderers.lines,
-          color: datColorByEf(efValue), weight: 3, opacity: 0.9,
+          color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
         });
         line.bindPopup(popupHtml);
         return line;
       }
 
-      // 3. POLYGONS
       if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
         if (!state.datPolygonsVisible) return null;
         const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
         const polygon = L.polygon(latLngs, {
           pane: 'datPolygonsPane',
           renderer: state.datRenderers.polygons,
-          color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: 0.35, weight: 2,
+          color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: state.datOpacity * 0.35, weight: 2, opacity: state.datOpacity,
         });
         polygon.bindPopup(popupHtml);
         return polygon;
@@ -1006,16 +1031,36 @@ function updateFilterReadouts() {
   if (yearMaxValue) yearMaxValue.textContent = String(state.yearMax);
 }
 
+function updateLayerControlStates() {
+  const nceiToggle = document.getElementById('nceiLayerToggle');
+  const datToggle = document.getElementById('datLayerToggle');
+  if (nceiToggle) {
+    nceiToggle.textContent = state.nceiLayerVisible ? '👁' : '🚫';
+    nceiToggle.classList.toggle('active', state.nceiLayerVisible);
+  }
+  if (datToggle) {
+    datToggle.textContent = state.datLayerVisible ? '👁' : '🚫';
+    datToggle.classList.toggle('active', state.datLayerVisible);
+  }
+
+  const spcToggle = document.getElementById('spcToggle');
+  if (spcToggle) {
+    spcToggle.textContent = state.spcLayerVisible ? '👁' : '🚫';
+    spcToggle.classList.toggle('active', state.spcLayerVisible);
+  }
+}
+
 function updateSpcControls() {
   const spcToggleButton = document.getElementById('spcToggle');
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   if (spcToggleButton) {
-    spcToggleButton.textContent = state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer';
+    spcToggleButton.textContent = state.spcLayerVisible ? '⭕️' : '🚫';
+    spcToggleButton.classList.toggle('active', state.spcLayerVisible);
   }
 
   if (spcMultiCountyButton) {
-    spcMultiCountyButton.textContent = state.spcMultiCountyOnly ? 'SPC: multi-county only' : 'SPC: all counties';
+    spcMultiCountyButton.textContent = state.spcMultiCountyOnly ? 'Multi-county only' : 'All paths';
     spcMultiCountyButton.classList.toggle('active', state.spcMultiCountyOnly);
   }
 }

@@ -49,7 +49,7 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(320px, 380px);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 320px);
   width: 100%;
   height: 100vh;
   gap: 12px;
@@ -500,6 +500,71 @@ textarea {
   pointer-events: auto;
 }
 
+.layer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.layer-section:last-child {
+  border-bottom: none;
+}
+
+.layer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.layer-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.layer-eye {
+  width: auto;
+  min-width: 32px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.layer-eye.active {
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.layer-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.opacity-row span {
+  white-space: nowrap;
+}
+
+.opacity-row input[type="range"] {
+  flex: 1;
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   body {
     overflow: auto;
@@ -560,6 +625,22 @@ textarea {
     flex: 1;
     overflow: hidden;
   }
+}
+
+.right-sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.editor-panel,
+.details-panel {
+  max-height: min(70vh, 560px);
 }
 
 .radar-info {
