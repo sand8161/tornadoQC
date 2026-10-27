@@ -224,6 +224,9 @@ function bindControls() {
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
   const datLayerToggleButton = document.getElementById('datLayerToggle');
   const nceiLayerToggleButton = document.getElementById('nceiLayerToggle');
+  const yearStartInput = document.getElementById('yearStartInput');
+  const yearEndInput = document.getElementById('yearEndInput');
+  const singleYearBtn = document.getElementById('singleYearBtn');
 
   if (spcToggleButton) {
     spcToggleButton.addEventListener('click', () => {
@@ -287,6 +290,62 @@ function bindControls() {
         yearMinInput.value = parsed;
       }
       state.yearMax = parsed;
+      updateFilterReadouts();
+      renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  if (yearStartInput && yearEndInput) {
+    const syncYearInputs = () => {
+      if (state.yearMin > state.yearMax) {
+        state.yearMax = state.yearMin;
+      }
+      if (state.yearMax < state.yearMin) {
+        state.yearMin = state.yearMax;
+      }
+      yearStartInput.value = String(state.yearMin);
+      yearEndInput.value = String(state.yearMax);
+      if (yearMinInput) yearMinInput.value = String(state.yearMin);
+      if (yearMaxInput) yearMaxInput.value = String(state.yearMax);
+      updateFilterReadouts();
+    };
+
+    yearStartInput.addEventListener('change', () => {
+      const value = Number(yearStartInput.value);
+      const minYear = Number(yearMinInput?.min || 1950);
+      const maxYear = Number(yearMaxInput?.max || 2025);
+      const nextValue = Math.min(Math.max(value, minYear), maxYear);
+      state.yearMin = nextValue;
+      if (state.yearMin > state.yearMax) {
+        state.yearMax = state.yearMin;
+      }
+      syncYearInputs();
+      renderFilteredData({ preserveMapView: true });
+    });
+
+    yearEndInput.addEventListener('change', () => {
+      const value = Number(yearEndInput.value);
+      const minYear = Number(yearMinInput?.min || 1950);
+      const maxYear = Number(yearMaxInput?.max || 2025);
+      const nextValue = Math.min(Math.max(value, minYear), maxYear);
+      state.yearMax = nextValue;
+      if (state.yearMax < state.yearMin) {
+        state.yearMin = state.yearMax;
+      }
+      syncYearInputs();
+      renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  if (singleYearBtn) {
+    singleYearBtn.addEventListener('click', () => {
+      const current = Number(state.yearMin);
+      state.yearMin = current;
+      state.yearMax = current;
+      if (yearStartInput) yearStartInput.value = String(current);
+      if (yearEndInput) yearEndInput.value = String(current);
+      if (yearMinInput) yearMinInput.value = String(current);
+      if (yearMaxInput) yearMaxInput.value = String(current);
       updateFilterReadouts();
       renderFilteredData({ preserveMapView: true });
     });
@@ -1023,6 +1082,8 @@ function updateFilterReadouts() {
   const yearMaxInput = document.getElementById('yearMax');
   const yearRangeValue = document.getElementById('yearRangeValue');
   const yearRangeFill = document.getElementById('yearRangeFill');
+  const yearStartInput = document.getElementById('yearStartInput');
+  const yearEndInput = document.getElementById('yearEndInput');
 
   if (yearMinInput && yearMaxInput) {
     yearMinInput.value = String(Math.min(Number(yearMinInput.value || state.yearMin), state.yearMax));
@@ -1030,6 +1091,9 @@ function updateFilterReadouts() {
     state.yearMin = Number(yearMinInput.value);
     state.yearMax = Number(yearMaxInput.value);
   }
+
+  if (yearStartInput) yearStartInput.value = String(state.yearMin);
+  if (yearEndInput) yearEndInput.value = String(state.yearMax);
 
   if (yearRangeValue) {
     yearRangeValue.textContent = `${state.yearMin}–${state.yearMax}`;
@@ -1798,6 +1862,7 @@ async function updateIemRadar() {
   }
 
   const dateStr = normalizeDateString(record.beginDate || record.endDate);
+ 
   const timeStr = normalizeTimeString(record.beginTime || '00:00');
   const timeInfo = getSpcRadarTimeInfo(record);
   const radarDateStr = timeInfo.dateStr || dateStr;

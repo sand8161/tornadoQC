@@ -45,6 +45,18 @@
             <span id="yearMinValue">1950</span>
             <span id="yearMaxValue">2025</span>
           </div>
+
+          <div class="year-manual-controls">
+            <label class="year-mini">
+              <span>Start</span>
+              <input id="yearStartInput" type="number" min="1950" max="2025" step="1" value="1950" />
+            </label>
+            <button id="singleYearBtn" type="button" class="secondary" style="width: auto; min-width: 110px; padding: 8px 10px;">Single year</button>
+            <label class="year-mini">
+              <span>End</span>
+              <input id="yearEndInput" type="number" min="1950" max="2025" step="1" value="2025" />
+            </label>
+          </div>
         </div>
 
         <!-- Collapsible Layers Menu -->
@@ -58,7 +70,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NCEI Reports</span>
-                <button id="nceiLayerToggle" type="button" class="layer-eye active" aria-label="Hide NCEI layer" title="Hide NCEI layer">View</button>
+                <button id="nceiLayerToggle" type="button" class="layer-eye active" aria-label="Hide NCEI layer" title="Hide NCEI layer">On</button>
               </div>
               <label class="opacity-row">
                 <span>Opacity</span>
@@ -69,7 +81,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">SPC Reports</span>
-                <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">View</button>
+                <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">On</button>
               </div>
               <div class="layer-controls">
                 <button id="spcMultiCountyBtn" type="button" class="secondary" style="font-size: 0.75rem;">All counties</button>
@@ -83,7 +95,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NOAA DAT Survey</span>
-                <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">View</button>
+                <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">On</button>
               </div>
               <div class="layer-controls">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
