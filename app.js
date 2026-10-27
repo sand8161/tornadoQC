@@ -578,15 +578,22 @@ function renderEditor() {
   const reportIdField = document.getElementById('reportId');
   if (reportIdField) reportIdField.value = record.reportId || record.id || '';
 
-  document.getElementById('beginDate').value = record.beginDate || '';
-  document.getElementById('beginTime').value = record.beginTime || '';
-  document.getElementById('endDate').value = record.endDate || '';
-  document.getElementById('endTime').value = record.endTime || '';
-  document.getElementById('beginLat').value = record.beginLatitude ?? '';
-  document.getElementById('beginLon').value = record.beginLongitude ?? '';
-  document.getElementById('endLat').value = record.endLatitude ?? '';
-  document.getElementById('endLon').value = record.endLongitude ?? '';
-  document.getElementById('qcNotes').value = record.qcNotes || '';
+  const fieldIds = [
+    ['beginDate', record.beginDate || ''],
+    ['beginTime', record.beginTime || ''],
+    ['endDate', record.endDate || ''],
+    ['endTime', record.endTime || ''],
+    ['beginLat', record.beginLatitude ?? ''],
+    ['beginLon', record.beginLongitude ?? ''],
+    ['endLat', record.endLatitude ?? ''],
+    ['endLon', record.endLongitude ?? ''],
+    ['qcNotes', record.qcNotes || ''],
+  ];
+
+  fieldIds.forEach(([id, value]) => {
+    const field = document.getElementById(id);
+    if (field) field.value = value;
+  });
 
   if (selectionLabel) {
     selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
@@ -1198,15 +1205,15 @@ function refreshYearBounds(initLatest = false) {
 
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
-  
+
   if (yearMinInput) {
     yearMinInput.min = String(dataMin);
     yearMinInput.max = String(dataMax);
     if (initLatest) {
-      yearMinInput.value = String(dataMax);
+      yearMinInput.value = String(dataMin);
     }
   }
-  
+
   if (yearMaxInput) {
     yearMaxInput.min = String(dataMin);
     yearMaxInput.max = String(dataMax);
@@ -1215,7 +1222,7 @@ function refreshYearBounds(initLatest = false) {
     }
   }
 
-  state.yearMin = Number(yearMinInput?.value || dataMax);
+  state.yearMin = Number(yearMinInput?.value || dataMin);
   state.yearMax = Number(yearMaxInput?.value || dataMax);
   updateFilterReadouts();
 }
@@ -1850,6 +1857,7 @@ async function updateIemRadar() {
     zIndex: 200,
     tileSize: 1024,
     updateWhenIdle: true
+ 
   });
 
   state.radarLayer.addTo(state.map);

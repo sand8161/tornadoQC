@@ -158,10 +158,57 @@
           </div>
 
           <div id="selectionEmpty" class="selection-empty">Select a tornado segment on the map to edit its times, coordinates, and notes.</div>
+          <div id="selectionLabel" class="selection-label" aria-live="polite"></div>
 
           <form id="segmentForm" class="hidden">
-            <!-- Your existing form fields remain exactly the same -->
-            <!-- ... -->
+            <div class="field-row">
+              <label>
+                Report ID
+                <input id="reportId" type="text" />
+              </label>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                Begin date
+                <input id="beginDate" type="date" />
+              </label>
+              <label>
+                Begin time
+                <input id="beginTime" type="time" />
+              </label>
+              <label>
+                End date
+                <input id="endDate" type="date" />
+              </label>
+              <label>
+                End time
+                <input id="endTime" type="time" />
+              </label>
+              <label>
+                Begin lat
+                <input id="beginLat" type="number" step="any" />
+              </label>
+              <label>
+                Begin lon
+                <input id="beginLon" type="number" step="any" />
+              </label>
+              <label>
+                End lat
+                <input id="endLat" type="number" step="any" />
+              </label>
+              <label>
+                End lon
+                <input id="endLon" type="number" step="any" />
+              </label>
+            </div>
+
+            <div class="field-row" style="margin-top: 12px;">
+              <label>
+                QC notes
+                <textarea id="qcNotes" placeholder="Add notes about the track correction..."></textarea>
+              </label>
+            </div>
           </form>
         </section>
 
