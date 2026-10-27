@@ -198,7 +198,6 @@ async function init() {
 function bindControls() {
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
-  const magnitudeInput = document.getElementById('magnitudeMin');
   const resetButton = document.getElementById('resetViewBtn');
   const csvInput = document.getElementById('csvUpload');
   const datInput = document.getElementById('datUpload');
@@ -231,14 +230,6 @@ function bindControls() {
     });
   }
 
-  if (magnitudeInput) {
-    magnitudeInput.addEventListener('change', () => {
-      state.minMagnitude = Number(magnitudeInput.value);
-      updateFilterReadouts();
-      renderFilteredData();
-    });
-  }
-
   if (spcToggleButton) {
     spcToggleButton.addEventListener('click', () => {
       state.spcLayerVisible = !state.spcLayerVisible;
@@ -262,8 +253,13 @@ function bindControls() {
         if (id === 'datPathToggle') state.datPathsVisible = !state.datPathsVisible;
         if (id === 'datPointToggle') state.datPointsVisible = !state.datPointsVisible;
         
-        btn.classList.toggle('active');
-        renderDatLayer(state.noaaDatMatches); // Re-render the layer with current visibility rules
+        btn.classList.toggle('active', 
+          (id === 'datPolyToggle' && state.datPolygonsVisible) ||
+          (id === 'datPathToggle' && state.datPathsVisible) ||
+          (id === 'datPointToggle' && state.datPointsVisible)
+        );
+
+        renderDatLayer(state.noaaDatMatches);
       });
     }
   });
@@ -459,8 +455,9 @@ function bindControls() {
 
   if (themeButton) {
     themeButton.addEventListener('click', () => {
-      const nextTheme = state.theme === 'dark' ? 'light' : 'dark';
-      applyTheme(nextTheme);
+      const nextMode = state.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(nextMode);
+      setStatus(`Switched to ${nextMode} mode.`);
     });
   }
 
@@ -534,8 +531,8 @@ function bindControls() {
         });
       }
       
-      // Wipe the old DAT polygons/points
-      clearDatLayer(); 
+      // Clear DAT layer and reset the cache
+      clearDatLayer(true); 
       
       renderEditor();
       setStatus('Selection cleared.');
@@ -599,14 +596,14 @@ function renderFilteredData(options = {}) {
   const { preserveMapView = false } = options;
   const primaryRows = state.rows.filter((row) => {
     const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-    return rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
+    return rowYear >= state.yearMin && rowYear <= state.yearMax;
   });
 
   let spcRows = [];
   if (state.spcLayerVisible) {
     spcRows = state.spcRows.filter((row) => {
       const rowYear = Number(row.year || getYearFromDate(row.beginDate));
-      const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax && row.magnitude >= state.minMagnitude;
+      const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax;
       const multiCountyPass = !state.spcMultiCountyOnly || isMultiCountyRow(row);
       return inRange && multiCountyPass;
     });
@@ -792,13 +789,17 @@ async function handleTrackSelection(record, preserveMapView = true) {
   }
 }
 
-function clearDatLayer() {
-  if (state.datLayerGroup) state.datLayerGroup.clearLayers();
-  state.noaaDatMatches = [];
+function clearDatLayer(clearData = false) {
+  if (state.datLayerGroup) {
+    state.datLayerGroup.clearLayers();
+  }
+  if (clearData) {
+    state.noaaDatMatches = [];
+  }
 }
 
 function renderDatLayer(features) {
-  clearDatLayer();
+  clearDatLayer(false); // Clear the visuals on map, but keep state.noaaDatMatches intact
   if (!features || !features.length || !state.datLayerGroup) return;
 
   const layers = features
@@ -827,16 +828,14 @@ function renderDatLayer(features) {
         const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
 
         if (isNonTornado) {
-          // Render circles for non-tornado points
           const marker = L.circleMarker([lat, lon], {
             pane: 'datPointsPane',
-            renderer: state.datRenderers.points, // Add this
+            renderer: state.datRenderers.points,
             radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: 1,
           });
           marker.bindPopup(popupHtml);
           return marker;
         } else {
-          // Render upside-down SVG triangles for tornado points
           const svgIcon = L.divIcon({
             className: 'dat-point-icon',
             html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
@@ -855,7 +854,7 @@ function renderDatLayer(features) {
         const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
         const line = L.polyline(latLngs, {
           pane: 'datLinesPane',
-          renderer: state.datRenderers.lines, // Add this
+          renderer: state.datRenderers.lines,
           color: datColorByEf(efValue), weight: 3, opacity: 0.9,
         });
         line.bindPopup(popupHtml);
@@ -868,7 +867,7 @@ function renderDatLayer(features) {
         const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
         const polygon = L.polygon(latLngs, {
           pane: 'datPolygonsPane',
-          renderer: state.datRenderers.polygons, // Add this
+          renderer: state.datRenderers.polygons,
           color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: 0.35, weight: 2,
         });
         polygon.bindPopup(popupHtml);
@@ -918,21 +917,24 @@ function polygonCoordinatesToLatLngs(coordinates) {
   }).filter((ring) => ring.length);
 }
 
+const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
+const MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+
 function applyTheme(mode) {
   state.theme = mode;
   document.body.classList.toggle('theme-light', mode === 'light');
   document.body.classList.toggle('theme-dark', mode === 'dark');
 
-  const themeButton = document.getElementById('themeToggle');
-  if (themeButton) {
-    themeButton.textContent = mode === 'dark' ? 'Light mode' : 'Dark mode';
+  const themeIcon = document.getElementById('themeToggleIcon');
+  if (themeIcon) {
+    // When currently dark, show Sun icon to switch to light; when light, show Moon icon
+    themeIcon.innerHTML = mode === 'dark' ? SUN_SVG : MOON_SVG;
   }
 }
 
 function updateFilterReadouts() {
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
-  const magnitudeInput = document.getElementById('magnitudeMin');
   const yearRangeValue = document.getElementById('yearRangeValue');
   const yearRangeFill = document.getElementById('yearRangeFill');
 
@@ -958,11 +960,9 @@ function updateFilterReadouts() {
 
   const yearMinValue = document.getElementById('yearMinValue');
   const yearMaxValue = document.getElementById('yearMaxValue');
-  const magnitudeValue = document.getElementById('magnitudeValue');
 
   if (yearMinValue) yearMinValue.textContent = String(state.yearMin);
   if (yearMaxValue) yearMaxValue.textContent = String(state.yearMax);
-  if (magnitudeInput && magnitudeValue) magnitudeValue.textContent = magnitudeInput.value;
 }
 
 function updateSpcControls() {

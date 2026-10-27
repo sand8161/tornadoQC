@@ -17,8 +17,10 @@
     <div class="app-shell">
       <aside class="sidebar">
         <div class="branding">
-          <span class="eyebrow">NOAA SPC</span>
           <h1>TornadoQC</h1>
+          <button id="themeToggleBtn" type="button" aria-label="Toggle light/dark theme" title="Toggle theme" style="background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: auto; height: auto;">
+            <span id="themeToggleIcon" style="display: flex; align-items: center;"></span>
+          </button>
         </div>
 
         <div class="filters">
@@ -38,13 +40,6 @@
             <span id="yearMinValue">1950</span>
             <span id="yearMaxValue">2025</span>
           </div>
-
-          <div class="filter-row">
-            <label>Min magnitude</label>
-            <span id="magnitudeValue">0</span>
-          </div>
-
-          <input id="magnitudeMin" type="range" min="0" max="5" value="0" />
         </div>
 
         <div class="actions">
@@ -112,7 +107,7 @@
 
       <main class="map-panel">
         <div id="map" aria-label="Tornado map"></div>
-        <div id="status" class="status-banner">Loading NOAA Storm Prediction Center dataset…</div>
+        <div id="status" class="status-banner">Loading NOAA Storm Prediction Center Onetor dataset…</div>
 
         <section class="editor-panel">
         <div class="editor-header">
