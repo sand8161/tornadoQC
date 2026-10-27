@@ -1058,7 +1058,8 @@ function updateLayerControlStates() {
 
   const setToggleText = (button, visible) => {
     if (!button) return;
-    button.textContent = visible ? 'On' : 'Off';
+    const nextText = visible ? 'On' : 'Off';
+    button.textContent = nextText;
     button.classList.toggle('active', visible);
     button.setAttribute('aria-label', visible ? 'Hide layer' : 'Show layer');
     button.title = visible ? 'Hide layer' : 'Show layer';
@@ -1074,10 +1075,11 @@ function updateSpcControls() {
   const spcMultiCountyButton = document.getElementById('spcMultiCountyBtn');
 
   if (spcToggleButton) {
-    spcToggleButton.textContent = state.spcLayerVisible ? 'On' : 'Off';
-    spcToggleButton.classList.toggle('active', state.spcLayerVisible);
-    spcToggleButton.setAttribute('aria-label', state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer');
-    spcToggleButton.title = state.spcLayerVisible ? 'Hide SPC layer' : 'Show SPC layer';
+    const visible = state.spcLayerVisible;
+    spcToggleButton.textContent = visible ? 'On' : 'Off';
+    spcToggleButton.classList.toggle('active', visible);
+    spcToggleButton.setAttribute('aria-label', visible ? 'Hide SPC layer' : 'Show SPC layer');
+    spcToggleButton.title = visible ? 'Hide SPC layer' : 'Show SPC layer';
   }
 
   if (spcMultiCountyButton) {
