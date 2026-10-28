@@ -995,21 +995,21 @@ async function handleTrackSelection(record, preserveMapView = true) {
   state.selectedId = record.id;
   renderEditor();
 
-  // Open right panel for CSV tracks; hide it for SPC tracks
   if (record.source === 'CSV') {
     renderDetailsPanel(record);
   } else {
     hideDetailsPanel();
   }
+
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
     state.radarLayer = null;
   }
+
   state.radarScans = [];
   state.radarScanIndex = 0;
   state.radarRecordId = null;
-  
-  // Highlight the selected track without destroying the map layers
+
   if (state.polyLines) {
     state.polyLines.forEach((layer, id) => {
       const isSelected = (id === state.selectedId);
@@ -1021,12 +1021,12 @@ async function handleTrackSelection(record, preserveMapView = true) {
       }
     });
   }
-  const statusEl = document.getElementById('radarStatus');
+
+  const radarSiteLabel = document.getElementById('radarSiteLabel');
   const offsetLabel = document.getElementById('radarOffsetLabel');
-  if (statusEl) statusEl.textContent = '';
+  if (radarSiteLabel) radarSiteLabel.textContent = '--';
   if (offsetLabel) offsetLabel.textContent = '--:-- UTC';
 
-  // Only zoom if preserveMapView is explicitly passed as false
   if (!preserveMapView && state.map) {
     zoomToSelectedTrack();
   }
@@ -1048,7 +1048,6 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   const matches = await fetchNoaaDatForTrack(record);
 
-  // If another track was clicked while fetching, bail out cleanly
   if (searchId !== currentDatSearchId) return;
 
   state.noaaDatMatches = matches || [];
@@ -1059,13 +1058,7 @@ async function handleTrackSelection(record, preserveMapView = true) {
   } else {
     setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
   }
-  updateIemRadar();
-  // When a track is clicked, clear the cached scans and index
-  state.radarScans = [];
-  state.radarScanIndex = 0;
-  state.radarRecordId = null;
 
-  // Only show radar block for primary tracks
   const radarControls = document.getElementById('radarControls');
   if (radarControls) {
     if (record.source === 'CSV' || record.source === 'SPC') {
@@ -1078,6 +1071,16 @@ async function handleTrackSelection(record, preserveMapView = true) {
         state.radarLayer = null;
       }
     }
+  }
+
+  if (!state.noaaDatMatches.length) {
+    clearDatLayer(false);
+    return;
+  }
+
+  if (state.datLayerGroup && !state.datLayerVisible) {
+    clearDatLayer(false);
+    return;
   }
 }
 
@@ -1094,88 +1097,116 @@ function renderDatLayer(features) {
   clearDatLayer(false);
   if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
 
-  const layers = features
-    .map((feature) => {
-      if (!feature || !feature.geometry) return null;
+  const layers = [];
+  for (const feature of features) {
+    if (!feature || !feature.geometry) {
+      continue;
+    }
 
-      const geometry = feature.geometry;
-      const attrs = feature.properties || feature.attributes || {};
-      const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
-      const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
-      const popupHtml = `
-        <div class="popup-title">NOAA DAT</div>
-        <div class="popup-grid">
-          <span>Event</span><strong>${label}</strong>
-          <span>EF/Type</span><strong>${efValue}</strong>
-          <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-        </div>
-      `;
+    const geometry = feature.geometry;
+    const attrs = feature.properties || feature.attributes || {};
+    const efValue = firstNonEmpty(
+      attrs.efscale,
+      attrs.EFSCALE,
+      attrs.ef_scale,
+      attrs['EF Scale'],
+      attrs['EF_SCALE'],
+      attrs.damage,
+      attrs.DAMAGE,
+      'UNKNOWN'
+    );
+    const county = firstNonEmpty(attrs.county, attrs.COUNTY, attrs.state, attrs.STATE, 'Unknown');
+    const popupHtml = `
+      <div style="font-weight:700; margin-bottom:6px;">
+        ${attrs.event_type || 'DAT feature'}
+      </div>
+      <div style="display:grid; grid-template-columns: auto 1fr; gap: 4px 8px; font-size: 0.75rem;">
+        <span>Category</span><strong>${efValue || 'Unknown'}</strong>
+        <span>County</span><strong>${county}</strong>
+      </div>
+    `;
 
-      if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
-        if (!state.datPointsVisible) return null;
-        const [lon, lat] = geometry.coordinates;
-        const color = datColorByEf(efValue);
-        const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
+    let layer = null;
+    if (geometry.type === 'Point') {
+      const [lon, lat] = geometry.coordinates || [0, 0];
+      const pointColor = datColorByEf(efValue);
+      const marker = L.circleMarker([lat, lon], {
+        pane: 'datPointsPane',
+        radius: 6,
+        color: '#ffffff',
+        weight: 1,
+        fillColor: pointColor,
+        fillOpacity: state.datOpacity,
+        opacity: state.datOpacity,
+      });
+      marker.bindPopup(popupHtml);
+      layer = marker;
+    }
 
-        if (isNonTornado) {
-          const marker = L.circleMarker([lat, lon], {
-            pane: 'datPointsPane',
-            renderer: state.datRenderers.points,
-            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: state.datOpacity,
-          });
-          marker.bindPopup(popupHtml);
-          return marker;
-        } else {
-          const svgIcon = L.divIcon({
-            className: 'dat-point-icon',
-            html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
-          });
-          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon, opacity: state.datOpacity });
-          marker.bindPopup(popupHtml);
-          return marker;
-        }
-      }
-
-      if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
-        if (!state.datPathsVisible) return null;
-        const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
-        const line = L.polyline(latLngs, {
-          pane: 'datLinesPane',
-          renderer: state.datRenderers.lines,
-          color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
+    if (geometry.type === 'MultiPoint') {
+      if (!state.datPointsVisible) continue;
+      const points = coordinatesToLatLngs(geometry.coordinates || []);
+      const group = L.layerGroup();
+      points.forEach(([lat, lon]) => {
+        const point = L.circleMarker([lat, lon], {
+          pane: 'datPointsPane',
+          radius: 6,
+          color: '#ffffff',
+          weight: 1,
+          fillColor: datColorByEf(efValue),
+          fillOpacity: state.datOpacity,
+          opacity: state.datOpacity,
         });
-        line.bindPopup(popupHtml);
-        return line;
-      }
+        point.bindPopup(popupHtml);
+        point.addTo(group);
+      });
+      layer = group;
+    }
 
-      if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
-        if (!state.datPolygonsVisible) return null;
-        const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
-        const polygon = L.polygon(latLngs, {
-          pane: 'datPolygonsPane',
-          renderer: state.datRenderers.polygons,
-          color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: state.datOpacity * 0.35, weight: 2, opacity: state.datOpacity,
-        });
-        polygon.bindPopup(popupHtml);
-        return polygon;
-      }
+    if (geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
+      if (!state.datPathsVisible) continue;
+      const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
+      const line = L.polyline(latLngs, {
+        pane: 'datLinesPane',
+        renderer: state.datRenderers.lines,
+        color: datColorByEf(efValue),
+        weight: 3,
+        opacity: state.datOpacity,
+      });
+      line.bindPopup(popupHtml);
+      layer = line;
+    }
 
-      return null;
-    })
-    .filter(Boolean);
+    if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+      if (!state.datPolygonsVisible) continue;
+      const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
+      const polygon = L.polygon(latLngs, {
+        pane: 'datPolygonsPane',
+        renderer: state.datRenderers.polygons,
+        color: datColorByEf(efValue),
+        fillColor: datColorByEf(efValue),
+        fillOpacity: state.datOpacity * 0.35,
+        weight: 2,
+        opacity: state.datOpacity,
+      });
+      polygon.bindPopup(popupHtml);
+      layer = polygon;
+    }
+
+    if (layer) {
+      layers.push(layer);
+    }
+  }
 
   layers.forEach((layer) => layer.addTo(state.datLayerGroup));
 }
 
 function datColorByEf(value) {
   const text = String(value || '').trim().toUpperCase();
-  
-  // Custom non-tornado colors distinct from EF palette
-  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6'; // Vivid Purple
-  if (text.includes('TROPICAL')) return '#10b981'; // Emerald Green
-  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e'; // Warm Grey
+
+  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6';
+  if (text.includes('TROPICAL')) return '#10b981';
+  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e';
 
   const palette = {
     'EF5': '#9d174d',
@@ -2109,7 +2140,7 @@ async function updateIemRadar() {
       }
 
       state.radarScans = scans;
-                                       state.radarRecordId = trackKey;
+      state.radarRecordId = trackKey;
 
       const targetMs = targetDate.getTime();
       let bestIdx = 0;
