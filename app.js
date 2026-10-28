@@ -459,8 +459,21 @@ function bindControls() {
 
   if (clearButton) {
     clearButton.addEventListener('click', () => {
-      // ... existing clear logic ...
       hideDetailsPanel();
+      state.selectedId = null;
+      
+      // Reset all track styles to normal
+      if (state.polyLines) {
+        state.polyLines.forEach((layer) => {
+          if (layer.setStyle) layer.setStyle({ weight: 3, opacity: 0.8 });
+        });
+      }
+      
+      clearDatLayer(true);
+      clearRadarLayer(true);
+      
+      renderEditor();
+      setStatus('Selection cleared.');
     });
   }
 
@@ -780,8 +793,8 @@ function bindControls() {
         });
       }
       
-      // Clear DAT layer and reset the cache
-      clearDatLayer(true); 
+      clearDatLayer(true);
+      clearRadarLayer(true);
       
       renderEditor();
       setStatus('Selection cleared.');
@@ -806,6 +819,73 @@ function bindControls() {
 
   if (radarVelocityBtn) {
     radarVelocityBtn.classList.toggle('active', state.radarType === 'velocity');
+  }
+
+  const pathIdLookupInput = document.getElementById('pathIdLookup');
+  const pathIdLookupBtn = document.getElementById('pathIdLookupBtn');
+
+  if (pathIdLookupBtn && pathIdLookupInput) {
+    const runPathIdLookup = () => {
+      const raw = (pathIdLookupInput.value || '').trim();
+      if (!raw) {
+        setStatus('Enter an NCEI path ID to search.', true);
+        return;
+      }
+
+      const needle = String(raw).trim().toLowerCase();
+      const match = state.rows.find((row) => {
+        const candidates = [
+          row.reportId,
+          row.id,
+          row.stormEventsReportID,
+          row.StormEventsReportID,
+          row.report_id,
+          row.REPORT_ID,
+          row.event_id,
+          row.EVENT_ID,
+        ];
+        return candidates.some((value) => value != null && String(value).trim().toLowerCase() === needle);
+      });
+
+      if (!match) {
+        setStatus(`No NCEI path found for ID: ${raw}`, true);
+        return;
+      }
+
+      state.selectedId = match.id;
+      renderEditor();
+      renderDetailsPanel(match);
+
+      const matchPath = state.polyLines && state.polyLines.get(match.id);
+      if (matchPath && state.map) {
+        const latLngs = matchPath.getLatLngs ? matchPath.getLatLngs() : [];
+        if (latLngs.length) {
+          const bounds = L.latLngBounds(latLngs);
+          if (bounds.isValid()) {
+            state.map.fitBounds(bounds, { padding: [60, 60], maxZoom: 12 });
+          }
+        }
+      }
+
+      if (state.polyLines) {
+        state.polyLines.forEach((layer, id) => {
+          if (layer.setStyle) {
+            layer.setStyle({ weight: id === match.id ? 6 : 3, opacity: id === match.id ? 1 : 0.8 });
+          }
+        });
+      }
+
+      setStatus(`Selected NCEI path ${raw}.`, false);
+      handleTrackSelection(match, false);
+    };
+
+    pathIdLookupBtn.addEventListener('click', runPathIdLookup);
+    pathIdLookupInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        runPathIdLookup();
+      }
+    });
   }
 }
 
@@ -1093,6 +1173,24 @@ function clearDatLayer(clearData = false) {
   if (clearData) {
     state.noaaDatMatches = [];
   }
+}
+
+function clearRadarLayer(clearCache = false) {
+  if (state.radarLayer && state.map) {
+    state.map.removeLayer(state.radarLayer);
+  }
+  state.radarLayer = null;
+  if (clearCache) {
+    state.radarScans = [];
+    state.radarScanIndex = 0;
+    state.radarRecordId = null;
+    state.radarRequestToken += 1;
+  }
+
+  const radarStatus = document.getElementById('radarStatus');
+  if (radarStatus) radarStatus.textContent = '';
+  const radarOffsetLabel = document.getElementById('radarOffsetLabel');
+  if (radarOffsetLabel) radarOffsetLabel.textContent = '--:-- UTC';
 }
 
 function renderDatLayer(features) {
@@ -2329,4 +2427,45 @@ function updateExportButtonLabel() {
   const count = state.corrections ? state.corrections.size : 0;
   const baseText = 'Export corrections';
   button.textContent = count > 0 ? `${baseText} (${count})` : baseText;
+}
+
+function renderEditor() {
+  const form = document.getElementById('segmentForm');
+  const empty = document.getElementById('selectionEmpty');
+  const selectionLabel = document.getElementById('selectionLabel');
+  const record = getSelectedRecord();
+  const pathLookupPanel = document.getElementById('pathLookupPanel');
+
+  if (pathLookupPanel) {
+    pathLookupPanel.classList.toggle('hidden', Boolean(record));
+  }
+
+  if (!record) {
+    if (form) form.classList.add('hidden');
+    if (empty) empty.classList.remove('hidden');
+    if (selectionLabel) selectionLabel.textContent = '';
+    return;
+  }
+
+  if (form) form.classList.remove('hidden');
+  if (empty) empty.classList.add('hidden');
+
+  const reportIdField = document.getElementById('reportId');
+  if (reportIdField) reportIdField.value = record.reportId || record.id || '';
+
+  document.getElementById('beginDate').value = record.beginDate || '';
+  document.getElementById('beginTime').value = record.beginTime || '';
+  document.getElementById('endDate').value = record.endDate || '';
+  document.getElementById('endTime').value = record.endTime || '';
+  document.getElementById('beginLat').value = record.beginLatitude ?? '';
+  document.getElementById('beginLon').value = record.beginLongitude ?? '';
+  document.getElementById('endLat').value = record.endLatitude ?? '';
+  document.getElementById('endLon').value = record.endLongitude ?? '';
+  document.getElementById('pathLength').value = record.lengthMiles ?? '';
+  document.getElementById('pathWidth').value = record.widthYards ?? '';
+  document.getElementById('qcNotes').value = record.qcNotes || '';
+
+  if (selectionLabel) {
+    selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
+  }
 }

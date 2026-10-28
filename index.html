@@ -201,6 +201,14 @@
           <div id="selectionEmpty" class="selection-empty">Select a tornado segment on the map to edit its times, coordinates, and notes.</div>
           <div id="selectionLabel" class="selection-label" aria-live="polite"></div>
 
+          <div id="pathLookupPanel" class="selection-empty" style="margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
+            <div style="font-size: 0.76rem; font-weight: 600; margin-bottom: 6px; color: var(--muted);">Search NCEI Path ID</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input id="pathIdLookup" type="text" placeholder="Enter path ID" style="flex: 1; min-width: 0;" />
+              <button id="pathIdLookupBtn" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Find</button>
+            </div>
+          </div>
+
           <form id="segmentForm" class="hidden">
             <div class="field-row">
               <label>
