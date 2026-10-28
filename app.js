@@ -235,6 +235,12 @@ function bindControls() {
 
   const syncYearRangeVisibility = () => {
     const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
+    if (!showEndYear) {
+      state.yearMax = state.yearMin;
+      if (yearEndInput) yearEndInput.value = String(state.yearMax);
+      if (yearEndSlider) yearEndSlider.value = String(state.yearMax);
+      if (yearMaxInput) yearMaxInput.value = String(state.yearMax);
+    }
     if (yearEndMini) yearEndMini.classList.toggle('hidden', !showEndYear);
     if (yearEndSliderWrap) yearEndSliderWrap.classList.toggle('hidden', !showEndYear);
     if (yearRangeToggleBtn) {
@@ -398,6 +404,14 @@ function bindControls() {
       const expanded = yearRangeToggleBtn.getAttribute('aria-expanded') === 'true';
       yearRangeToggleBtn.setAttribute('aria-expanded', String(!expanded));
       syncYearRangeVisibility();
+      if (!yearRangeToggleBtn.getAttribute('aria-expanded') || yearRangeToggleBtn.getAttribute('aria-expanded') === 'false') {
+        state.yearMax = state.yearMin;
+        if (yearEndInput) yearEndInput.value = String(state.yearMax);
+        if (yearEndSlider) yearEndSlider.value = String(state.yearMax);
+        if (yearMaxInput) yearMaxInput.value = String(state.yearMax);
+        updateFilterReadouts();
+      }
+      renderFilteredData({ preserveMapView: true });
     });
   }
 
@@ -537,7 +551,9 @@ function bindControls() {
     resetButton.addEventListener('click', () => {
       if (state.allBounds && state.allBounds.isValid()) {
         state.map.fitBounds(state.allBounds, { padding: [24, 24] });
+        return;
       }
+      zoomToConus();
     });
   }
 
@@ -1242,6 +1258,20 @@ function setStatus(message, isError = false) {
   statusEl.classList.toggle('error', Boolean(isError));
 }
 
+function normalizeIdentifier(value) {
+  if (value === null || value === undefined) return value;
+
+  const text = String(value).trim();
+  if (!text || text === 'null' || text === 'NaN') return value;
+
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && Number.isInteger(numeric)) {
+    return String(numeric);
+  }
+
+  return text;
+}
+
 function firstNonEmpty(...values) {
   for (const value of values) {
     if (value === null || value === undefined) {
@@ -1671,7 +1701,7 @@ function normalizeRow(row, source) {
   const normalized = {
     _raw: row, // Keep full original column set for inspection
     id: String(id ?? `${source}-${Math.random().toString(16).slice(2)}`),
-    reportId: String(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
+    reportId: normalizeIdentifier(firstNonEmpty(row.stormEventsReportID, row.StormEventsReportID, row.reportId, row.report_id, row.REPORT_ID, id, 'UNKNOWN')),
     source,
     beginDate: beginDate || endDate || '0000-00-00',
     beginTime: beginTime || '00:00',
@@ -1897,8 +1927,6 @@ async function fetchAwsRadar(record) {
     const response = await fetch(url);
     if (!response.ok) throw new Error('S3 fetch failed');
     const text = await response.text();
-    
-    // Parse the AWS XML response
     const parser = new DOMParser();
     const xml = parser.parseFromString(text, "text/xml");
     const contents = Array.from(xml.querySelectorAll("Contents"));
@@ -2100,6 +2128,20 @@ async function updateIemRadar() {
   if (statusEl) {
     statusEl.textContent = `${typeLabel} (${site3})`;
   }
+}
+
+function zoomToConus() {
+  if (!state.map) return;
+
+  const conusBounds = L.latLngBounds(
+    [24.5, -125],
+    [49.5, -66.5]
+  );
+
+  state.map.fitBounds(conusBounds, {
+    padding: [24, 24],
+    maxZoom: 6
+  });
 }
 
 function zoomToSelectedTrack() {
