@@ -815,6 +815,11 @@ function renderEditor() {
   const selectionLabel = document.getElementById('selectionLabel');
   const record = getSelectedRecord();
 
+  const datLayerSection = document.getElementById('datLayerSection');
+  if (datLayerSection) {
+    datLayerSection.classList.toggle('hidden', !record);
+  }
+
   if (!record) {
     if (form) form.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
@@ -1947,89 +1952,6 @@ function getDistanceMiles(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-async function fetchAwsRadar(record) {
-  const radarEl = document.getElementById('radarInfo');
-  if (!radarEl) return;
-  
-  if (!state.radarStations.length) {
-    radarEl.innerHTML = '<em>Radar station list unavailable.</em>';
-    return;
-       }
-
-  // Find nearest radar
-  let nearest = null;
-  let minDst = Infinity;
-  for (const station of state.radarStations) {
-    const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
-    if (d < minDst) {
-      minDst = d;
-      nearest = station;
-    }
-  }
-
-  const dateStr = normalizeDateString(record.beginDate || record.endDate);
-  const timeStr = normalizeTimeString(record.beginTime || '00:00');
-  
-  // AWS Level-2 archive reliably starts around 1991
-  if (!dateStr || Number(dateStr.slice(0,4)) < 1991) {
-    radarEl.innerHTML = `<em>AWS Level-2 archive unavailable prior to 1991. Nearest site: ${nearest.id} (${Math.round(minDst)} mi)</em>`;
-    return;
-  }
-
-  radarEl.innerHTML = `<em>Querying AWS S3 for ${nearest.id} (${Math.round(minDst)} mi away)...</em>`;
-  
-  const [year, month, day] = dateStr.split('-');
-  const prefix = `${year}/${month}/${day}/${nearest.id}/`;
-  const s3Url = `https://noaa-nexrad-level2.s3.amazonaws.com/?list-type=2&prefix=${prefix}`;
-  const url = `https://corsproxy.io/?url=${encodeURIComponent(s3Url)}`;  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('S3 fetch failed');
-    const text = await response.text();
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(text, "text/xml");
-    const contents = Array.from(xml.querySelectorAll("Contents"));
-    
-    if (!contents.length) {
-      radarEl.innerHTML = `No data found on AWS for <strong>${nearest.id}</strong> on ${dateStr}. (${Math.round(minDst)} mi away)`;
-      return;
-    }
-
-    // Find the closest file by time
-    const targetMs = new Date(`${dateStr}T${timeStr}:00Z`).getTime();
-    let closestFile = null;
-    let minTimeDiff = Infinity;
-
-    for (const c of contents) {
-      const key = c.querySelector('Key').textContent;
-      // Extract HHMMSS from standard NEXRAD filenames: KTLX20130520_195812_V06
-      const match = key.match(/_(\d{6})/);
-      if (match) {
-        const fileMs = new Date(`${dateStr}T${match[1].slice(0,2)}:${match[1].slice(2,4)}:${match[1].slice(4,6)}Z`).getTime();
-        const diff = Math.abs(fileMs - targetMs);
-        if (diff < minTimeDiff) {
-          minTimeDiff = diff;
-          closestFile = key;
-        }
-      }
-    }
-
-    if (closestFile) {
-      const downloadUrl = `https://noaa-nexrad-level2.s3.amazonaws.com/${closestFile}`;
-      const diffMinutes = Math.round(minTimeDiff / 60000);
-      radarEl.innerHTML = `
-        <strong>Nearest site:</strong> ${nearest.id} (${Math.round(minDst)} mi)<br>
-        <strong>Level-2 scan:</strong> <a href="${downloadUrl}" target="_blank">Download .gz</a> 
-        <span style="font-size:0.75rem">(${diffMinutes} min offset from start time)</span>
-      `;
-    } else {
-      radarEl.innerHTML = `AWS files found for ${nearest.id}, but time format was unreadable.`;
-    }
-  } catch (err) {
-    console.warn('AWS Radar fetch error', err);
-    radarEl.innerHTML = `<em>Failed to query AWS bucket for ${nearest.id}.</em>`;
-  }
-}
-
 async function updateIemRadar() {
   const record = getSelectedRecord();
   const statusEl = document.getElementById('radarStatus');
@@ -2083,6 +2005,10 @@ async function updateIemRadar() {
   }
 
   const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
+  const radarSiteLabel = document.getElementById('radarSiteLabel');
+  if (radarSiteLabel) {
+    radarSiteLabel.textContent = site3;
+  }
   const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0S';
   const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SR Velocity';
 
@@ -2109,7 +2035,7 @@ async function updateIemRadar() {
       }
 
       state.radarScans = scans;
-                                       state.radarRecordId = trackKey;
+      state.radarRecordId = trackKey;
 
       const targetMs = targetDate.getTime();
       let bestIdx = 0;

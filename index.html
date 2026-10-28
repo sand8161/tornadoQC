@@ -94,7 +94,7 @@
               </div>
             </div>
 
-            <div class="layer-section">
+            <div id="datLayerSection" class="layer-section hidden">
               <div class="layer-header">
                 <span class="layer-title">NOAA DAT Survey</span>
                 <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">On</button>
@@ -124,12 +124,8 @@
               
               <div id="radarTimeScrubber" class="hidden" style="margin-top: 8px;">
                 <div style="text-align: center; font-size: 0.6rem; margin-bottom: 4px;">
-                  <span style="color: var(--muted);">Site: </span>
-                  <strong id="radarSiteLabel" style="color: var(--accent);">--</strong>
-                </div>
-                <div style="text-align: center; font-size: 0.6rem; margin-bottom: 4px;">
-                  <span style="color: var(--muted);">Scan Time: </span>
-                  <strong id="radarOffsetLabel" style="color: var(--accent);">--:-- UTC</strong>
+                  <span style="color: var(--muted);">Scan Time: </span> 
+                  <strong id="radarOffsetLabel" style="color: var(--accent);">--:-- UTC</strong> <strong id="radarSiteLabel" style="color: var(--accent);">(--)</strong>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <button id="radarStepBackBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="Previous Scan">&laquo;</button>
