@@ -1858,7 +1858,7 @@ async function fetchAwsRadar(record) {
   if (!state.radarStations.length) {
     radarEl.innerHTML = '<em>Radar station list unavailable.</em>';
     return;
-     }
+       }
 
   // Find nearest radar
   let nearest = null;
@@ -1959,7 +1959,12 @@ async function updateIemRadar() {
   const dateStr = normalizeDateString(record.beginDate || record.endDate);
  
   const timeStr = normalizeTimeString(record.beginTime || '00:00');
-  const timeInfo = getSpcRadarTimeInfo(record);
+  const timeInfo = record.source === 'SPC' ? getSpcRadarTimeInfo(record) : {
+    dateStr,
+    timeStr,
+    offsetMinutes: 0,
+    utcDate: new Date(`${normalizeDateString(record.beginDate || record.endDate) || dateStr}T${normalizeTimeString(record.beginTime || '00:00') || timeStr}:00Z`),
+  };
   const radarDateStr = timeInfo.dateStr || dateStr;
   const radarTimeStr = timeInfo.timeStr || timeStr;
 
