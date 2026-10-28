@@ -193,6 +193,7 @@ async function init() {
   bindControls();
   updateSpcControls();
   applyTheme('dark');
+  updateExportButtonLabel();
   loadCountyBoundaries();
 
   try {
@@ -725,6 +726,7 @@ function bindControls() {
         qcNotes: payload.qcNotes,
       });
 
+      updateExportButtonLabel();
       renderFilteredData({ preserveMapView: true });
       renderEditor();
       setStatus(`Saved updates for ${record.reportId || record.id}.`);
@@ -1803,7 +1805,7 @@ async function fetchNoaaDatForTrack(record) {
   const unique = new Map();
 
   const xMin = Math.min(record.beginLongitude, record.endLongitude) - 0.5;
-  const yMin = Math.min(record.beginLatitude, record.endLatitude) - 0.5;
+  const yMin = Math.min(record.beginLatitude, record.beginLatitude) - 0.5;
   const xMax = Math.max(record.beginLongitude, record.endLongitude) + 0.5;
   const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
   const bbox = `${xMin},${yMin},${xMax},${yMax}`;
@@ -1849,7 +1851,7 @@ async function fetchNoaaDatForTrack(record) {
           attrs.event_date,
           attrs.damage_date,
           attrs.damage_dt,
-          attrs.date,
+                   attrs.date,
           attrs.begin_date,
           attrs.end_date,
           attrs.issue_date,
@@ -2194,7 +2196,7 @@ function renderDetailsPanel(record) {
     const rawData = record._raw || record;
     const skipKeys = new Set(['_raw', 'details', 'overview']);
     
-    tbody.innerHTML = Object.entries(rawData)
+    const rows = Object.entries(rawData)
       .filter(([k, v]) => !skipKeys.has(k) && v !== null && v !== undefined && String(v).trim() !== '')
       .map(([key, value]) => `
         <tr>
@@ -2202,6 +2204,8 @@ function renderDetailsPanel(record) {
           <td>${escapeHtml(String(value))}</td>
         </tr>
       `).join('');
+
+    tbody.innerHTML = rows;
   }
 
   panel.classList.remove('hidden');
@@ -2334,4 +2338,13 @@ function getSpcRadarTimeInfo(record) {
     utcDate,
     utcMinutes,
   };
+}
+
+function updateExportButtonLabel() {
+  const button = document.getElementById('exportCorrections');
+  if (!button) return;
+
+  const count = state.corrections ? state.corrections.size : 0;
+  const baseText = 'Export corrections';
+  button.textContent = count > 0 ? `${baseText} (${count})` : baseText;
 }

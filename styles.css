@@ -201,7 +201,63 @@ h1 {
   min-width: 0;
   margin: 0;
   height: 18px;
+  padding: 0;
+  display: block;
+  background: transparent;
   accent-color: var(--accent-strong);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mini-slider-label input[type="range"]::-webkit-slider-runnable-track,
+#radarTimeSlider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+.mini-slider-label input[type="range"]::-webkit-slider-thumb,
+#radarTimeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #60a5fa;
+  border: 2px solid #fff;
+  margin-top: -5px;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.12);
+}
+
+.mini-slider-label input[type="range"]::-moz-range-track,
+#radarTimeSlider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.28);
+  border: none;
+}
+
+.mini-slider-label input[type="range"]::-moz-range-thumb,
+#radarTimeSlider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #60a5fa;
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.12);
+}
+
+#radarTimeSlider {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .year-end-slider,
@@ -305,8 +361,8 @@ button {
 }
 
 button.active {
-  background: linear-gradient(180deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.12));
-  border-color: rgba(222, 36, 251, 0.45);
+  background: linear-gradient(180deg, rgba(236, 72, 153, 0.2), rgba(219, 39, 119, 0.12));
+  border-color: rgba(236, 72, 153, 0.5);
 }
 
 button.secondary {
@@ -314,7 +370,8 @@ button.secondary {
 }
 
 button.secondary.active {
-  background: linear-gradient(180deg, rgba(251, 191, 36, 0.18), rgba(245, 158, 11, 0.08));
+  background: linear-gradient(180deg, rgba(236, 72, 153, 0.18), rgba(219, 39, 119, 0.08));
+  border-color: rgba(236, 72, 153, 0.5);
 }
 
 button.primary {
@@ -631,15 +688,15 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  width: 78px;
-  min-width: 78px;
-  height: 22px;
-  padding: 0 10px 0 20px;
+  width: 62px;
+  min-width: 62px;
+  height: 20px;
+  padding: 0 8px 0 16px;
   background: rgba(148, 163, 184, 0.12);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
-  font-size: 0.52rem;
+  font-size: 0.5rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
@@ -652,8 +709,8 @@ textarea {
   content: "";
   position: absolute;
   left: 4px;
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
@@ -665,7 +722,7 @@ textarea {
   border-color: rgba(96, 165, 250, 0.7);
   color: var(--accent);
   justify-content: flex-start;
-  padding: 0 18px 0 10px;
+  padding: 0 14px 0 8px;
 }
 
 .layer-eye.active::before {
@@ -679,15 +736,15 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  width: 78px;
-  min-width: 78px;
-  height: 22px;
-  padding: 0 10px 0 20px;
+  width: 62px;
+  min-width: 62px;
+  height: 20px;
+  padding: 0 8px 0 16px;
   background: rgba(148, 163, 184, 0.12);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
-  font-size: 0.52rem;
+  font-size: 0.5rem;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
@@ -700,8 +757,8 @@ textarea {
   content: "";
   position: absolute;
   left: 4px;
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
@@ -713,7 +770,7 @@ textarea {
   border-color: rgba(96, 165, 250, 0.7);
   color: var(--accent);
   justify-content: flex-start;
-  padding: 0 18px 0 10px;
+  padding: 0 14px 0 8px;
 }
 
 .radar-toggle.active::before {
@@ -787,6 +844,7 @@ textarea {
   right: 16px;
   z-index: 600;
   width: min(280px, calc(100% - 32px));
+  height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -812,11 +870,16 @@ textarea {
   z-index: 2;
   max-height: min(52vh, 380px);
   overflow: auto;
+  flex: 0 0 auto;
 }
 
 .details-panel {
-  max-height: min(38vh, 260px);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  max-height: none;
+  overflow: hidden;
 }
 
 .editor-header {
@@ -889,17 +952,53 @@ textarea {
 }
 
 .details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 10px 12px 12px;
+}
+
+#detailsOverviewSection {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 6px;
+}
+
+.details-section-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.details-overview {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  padding-right: 6px;
+  color: var(--text);
+  line-height: 1.5;
+  font-size: 0.78rem;
+  overflow-y: auto;
 }
 
 .details-table-wrapper {
   overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .details-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
 }
 
 .details-table th,
