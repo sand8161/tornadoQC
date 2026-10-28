@@ -32,7 +32,7 @@ const state = {
   countyLabelsLayer: null,
   countyLayer: null,
   radarLayer: null,
-  radarType: 'off', // 'off', 'reflectivity', or 'velocity'
+  radarType: 'reflectivity', // 'off', 'reflectivity', or 'velocity'
   radarOpacity: 0.65,
   radarOffsetMinutes: 0,
   baseTileLayer: null,
@@ -251,12 +251,19 @@ function bindControls() {
   };
 
   const applyYearRangeState = (nextMin, nextMax, triggerRender = true) => {
+    const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
     const minYear = Number(yearStartInput?.min || 1950);
     const maxYear = Number(yearStartInput?.max || 2026);
     const safeMin = Math.min(Math.max(nextMin, minYear), maxYear);
     const safeMax = Math.min(Math.max(nextMax, minYear), maxYear);
-    state.yearMin = Math.min(safeMin, safeMax);
-    state.yearMax = Math.max(safeMin, safeMax);
+
+    if (showEndYear) {
+      state.yearMin = Math.min(safeMin, safeMax);
+      state.yearMax = Math.max(safeMin, safeMax);
+    } else {
+      state.yearMin = safeMin;
+      state.yearMax = safeMin;
+    }
 
     if (yearStartInput) yearStartInput.value = String(state.yearMin);
     if (yearEndInput) yearEndInput.value = String(state.yearMax);
@@ -340,10 +347,12 @@ function bindControls() {
 
   if (yearStartInput && yearEndInput) {
     const syncYearInputs = () => {
-      if (state.yearMin > state.yearMax) {
+      const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
+      if (!showEndYear) {
         state.yearMax = state.yearMin;
-      }
-      if (state.yearMax < state.yearMin) {
+      } else if (state.yearMin > state.yearMax) {
+        state.yearMax = state.yearMin;
+      } else if (state.yearMax < state.yearMin) {
         state.yearMin = state.yearMax;
       }
       yearStartInput.value = String(state.yearMin);
@@ -360,8 +369,13 @@ function bindControls() {
       const minYear = Number(yearStartInput.min || 1950);
       const maxYear = Number(yearStartInput.max || 2025);
       const nextValue = Math.min(Math.max(value, minYear), maxYear);
+      const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
       state.yearMin = nextValue;
-      if (state.yearMin > state.yearMax) {
+      if (showEndYear) {
+        if (state.yearMin > state.yearMax) {
+          state.yearMax = state.yearMin;
+        }
+      } else {
         state.yearMax = state.yearMin;
       }
       syncYearInputs();
@@ -373,8 +387,13 @@ function bindControls() {
       const minYear = Number(yearEndInput.min || 1950);
       const maxYear = Number(yearEndInput.max || 2025);
       const nextValue = Math.min(Math.max(value, minYear), maxYear);
+      const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
       state.yearMax = nextValue;
-      if (state.yearMax < state.yearMin) {
+      if (showEndYear) {
+        if (state.yearMax < state.yearMin) {
+          state.yearMin = state.yearMax;
+        }
+      } else {
         state.yearMin = state.yearMax;
       }
       syncYearInputs();
@@ -419,7 +438,8 @@ function bindControls() {
   if (yearStartSlider) {
     yearStartSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
-      applyYearRangeState(value, state.yearMax, true);
+      const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
+      applyYearRangeState(showEndYear ? value : value, showEndYear ? state.yearMax : value, true);
       syncYearRangeVisibility();
     });
   }
@@ -427,7 +447,12 @@ function bindControls() {
   if (yearEndSlider) {
     yearEndSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
-      applyYearRangeState(state.yearMin, value, true);
+      const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
+      if (!showEndYear) {
+        applyYearRangeState(value, value, true);
+      } else {
+        applyYearRangeState(state.yearMin, value, true);
+      }
       syncYearRangeVisibility();
     });
   }
@@ -462,13 +487,24 @@ function bindControls() {
     const btn = document.getElementById(id);
     if (btn) {
       btn.addEventListener('click', () => {
-        if (id === 'radarReflectivityBtn') state.radarType = 'reflectivity';
-        if (id === 'radarVelocityBtn') state.radarType = 'velocity';
-        if (id === 'radarOffBtn') state.radarType = 'off';
+        if (id === 'radarOffBtn') {
+          const wasOn = state.radarType !== 'off';
+          state.radarType = wasOn ? 'off' : 'reflectivity';
+        }
+        if (id === 'radarReflectivityBtn') {
+          state.radarType = 'reflectivity';
+        }
+        if (id === 'radarVelocityBtn') {
+          state.radarType = 'velocity';
+        }
         
+        const radarOn = state.radarType !== 'off';
+        document.getElementById('radarOffBtn')?.classList.toggle('active', radarOn);
+        document.getElementById('radarOffBtn')?.setAttribute('aria-label', radarOn ? 'Turn radar off' : 'Turn radar on');
+        document.getElementById('radarOffBtn')?.setAttribute('title', radarOn ? 'Turn radar off' : 'Turn radar on');
+        document.getElementById('radarOffBtn').textContent = radarOn ? 'On' : 'Off';
         document.getElementById('radarReflectivityBtn')?.classList.toggle('active', state.radarType === 'reflectivity');
         document.getElementById('radarVelocityBtn')?.classList.toggle('active', state.radarType === 'velocity');
-        document.getElementById('radarOffBtn')?.classList.toggle('active', state.radarType === 'off');
 
         updateIemRadar();
       });
@@ -750,6 +786,26 @@ function bindControls() {
       renderEditor();
       setStatus('Selection cleared.');
     });
+  }
+
+  const radarOffBtn = document.getElementById('radarOffBtn');
+  const radarReflectivityBtn = document.getElementById('radarReflectivityBtn');
+  const radarVelocityBtn = document.getElementById('radarVelocityBtn');
+
+  if (radarOffBtn) {
+    const radarOn = state.radarType !== 'off';
+    radarOffBtn.textContent = radarOn ? 'On' : 'Off';
+    radarOffBtn.classList.toggle('active', radarOn);
+    radarOffBtn.setAttribute('aria-label', radarOn ? 'Turn radar off' : 'Turn radar on');
+    radarOffBtn.title = radarOn ? 'Turn radar off' : 'Turn radar on';
+  }
+
+  if (radarReflectivityBtn) {
+    radarReflectivityBtn.classList.toggle('active', state.radarType === 'reflectivity');
+  }
+
+  if (radarVelocityBtn) {
+    radarVelocityBtn.classList.toggle('active', state.radarType === 'velocity');
   }
 }
 

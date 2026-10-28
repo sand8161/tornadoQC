@@ -113,11 +113,13 @@
             </div>
 
             <div id="radarControls" class="hidden" style="padding-top: 6px; border-top: 1px solid var(--border);">
-              <span style="font-size: 0.6rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Radar (IEM)</span>
-              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;">
-                <button id="radarReflectivityBtn" type="button" class="secondary" style="font-size: 0.6rem;">Reflectivity</button>
+              <div class="layer-header">
+                <span class="layer-title">Radar (IEM)</span>
+                <button id="radarOffBtn" type="button" class="layer-eye active" aria-label="Turn radar off" title="Turn radar off">On</button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; margin-bottom: 6px;">
+                <button id="radarReflectivityBtn" type="button" class="secondary active" style="font-size: 0.6rem;">Reflectivity</button>
                 <button id="radarVelocityBtn" type="button" class="secondary" style="font-size: 0.6rem;">Velocity</button>
-                <button id="radarOffBtn" type="button" class="secondary radar-toggle active" style="font-size: 0.6rem;">Off</button>
               </div>
               
               <div id="radarTimeScrubber" class="hidden" style="margin-top: 8px;">
