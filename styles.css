@@ -780,3 +780,155 @@ textarea {
   cursor: pointer;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.12);
 }
+
+.right-sidebar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 600;
+  width: min(280px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.right-sidebar > * {
+  pointer-events: auto;
+}
+
+.editor-panel,
+.details-panel {
+  width: 100%;
+  background: var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.22);
+}
+
+.editor-panel {
+  position: relative;
+  z-index: 2;
+  max-height: min(52vh, 380px);
+  overflow: auto;
+}
+
+.details-panel {
+  max-height: min(38vh, 260px);
+  overflow: auto;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-header h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#segmentForm,
+.selection-empty {
+  padding: 10px 12px 12px;
+}
+
+.selection-empty {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 0.8rem;
+}
+
+.field-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+input, textarea {
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+}
+
+textarea {
+  min-height: 84px;
+}
+
+.details-panel {
+  padding: 0;
+}
+
+.details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.details-header h2 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.details-content {
+  padding: 10px 12px 12px;
+}
+
+.details-table-wrapper {
+  overflow: auto;
+}
+
+.details-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.details-table th,
+.details-table td {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  vertical-align: top;
+  text-align: left;
+}
+
+.details-table th {
+  color: var(--muted);
+  font-weight: 600;
+  width: 40%;
+  padding-right: 8px;
+}
+
+.details-table td {
+  color: var(--text);
+  word-break: break-word;
+}
+
+.editor-panel {
+  position: relative;
+  top: 0;
+  right: 0;
+  max-height: min(52vh, 380px);
+}
+
+.details-panel.hidden {
+  display: none !important;
+}

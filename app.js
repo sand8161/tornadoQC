@@ -668,6 +668,8 @@ function bindControls() {
         beginLongitude: Number(document.getElementById('beginLon').value),
         endLatitude: Number(document.getElementById('endLat').value),
         endLongitude: Number(document.getElementById('endLon').value),
+        lengthMiles: Number(document.getElementById('pathLength').value),
+        widthYards: Number(document.getElementById('pathWidth').value),
         qcNotes: document.getElementById('qcNotes').value.trim(),
       };
 
@@ -683,6 +685,8 @@ function bindControls() {
         beginLongitude: payload.beginLongitude,
         endLatitude: payload.endLatitude,
         endLongitude: payload.endLongitude,
+        lengthMiles: payload.lengthMiles,
+        widthYards: payload.widthYards,
         qcNotes: payload.qcNotes,
       };
 
@@ -699,6 +703,8 @@ function bindControls() {
         beginLongitude: payload.beginLongitude,
         endLatitude: payload.endLatitude,
         endLongitude: payload.endLongitude,
+        lengthMiles: payload.lengthMiles,
+        widthYards: payload.widthYards,
         magnitude: record.magnitude,
         qcNotes: payload.qcNotes,
       });
@@ -756,6 +762,8 @@ function renderEditor() {
   document.getElementById('beginLon').value = record.beginLongitude ?? '';
   document.getElementById('endLat').value = record.endLatitude ?? '';
   document.getElementById('endLon').value = record.endLongitude ?? '';
+  document.getElementById('pathLength').value = record.lengthMiles ?? '';
+  document.getElementById('pathWidth').value = record.widthYards ?? '';
   document.getElementById('qcNotes').value = record.qcNotes || '';
 
   if (selectionLabel) {
