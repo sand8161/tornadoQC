@@ -86,7 +86,7 @@
                 <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">On</button>
               </div>
               <div class="layer-controls">
-                <button id="spcMultiCountyBtn" type="button" class="secondary" style="font-size: 0.75rem;">All counties</button>
+                <button id="spcMultiCountyBtn" type="button" class="secondary" style="font-size: 0.6rem;">All counties</button>
                 <label class="opacity-row">
                   <span>Opacity</span>
                   <input id="spcOpacity" type="range" min="0.1" max="1" step="0.05" value="0.8" />
@@ -101,9 +101,9 @@
               </div>
               <div class="layer-controls">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
-                  <button id="datPolyToggle" type="button" class="secondary active" style="font-size: 0.75rem;">Polygons</button>
-                  <button id="datPathToggle" type="button" class="secondary active" style="font-size: 0.75rem;">Paths</button>
-                  <button id="datPointToggle" type="button" class="secondary active" style="font-size: 0.75rem;">Points</button>
+                  <button id="datPolyToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Polygons</button>
+                  <button id="datPathToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Paths</button>
+                  <button id="datPointToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Points</button>
                 </div>
                 <label class="opacity-row">
                   <span>Opacity</span>
@@ -113,15 +113,15 @@
             </div>
 
             <div id="radarControls" class="hidden" style="padding-top: 6px; border-top: 1px solid var(--border);">
-              <span style="font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Historical Radar (IEM WMS)</span>
+              <span style="font-size: 0.6rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 4px;">Radar (IEM)</span>
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px;">
-                <button id="radarReflectivityBtn" type="button" class="secondary" style="font-size: 0.75rem;">Reflectivity</button>
-                <button id="radarVelocityBtn" type="button" class="secondary" style="font-size: 0.75rem;">Velocity</button>
-                <button id="radarOffBtn" type="button" class="secondary active" style="font-size: 0.75rem;">Off</button>
+                <button id="radarReflectivityBtn" type="button" class="secondary" style="font-size: 0.6rem;">Reflectivity</button>
+                <button id="radarVelocityBtn" type="button" class="secondary" style="font-size: 0.6rem;">Velocity</button>
+                <button id="radarOffBtn" type="button" class="secondary radar-toggle active" style="font-size: 0.6rem;">Off</button>
               </div>
               
               <div id="radarTimeScrubber" class="hidden" style="margin-top: 8px;">
-                <div style="text-align: center; font-size: 0.75rem; margin-bottom: 4px;">
+                <div style="text-align: center; font-size: 0.6rem; margin-bottom: 4px;">
                   <span style="color: var(--muted);">Scan Time: </span>
                   <strong id="radarOffsetLabel" style="color: var(--accent);">--:-- UTC</strong>
                 </div>
@@ -131,7 +131,7 @@
                   <button id="radarStepFwdBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="Next Scan">&raquo;</button>
                 </div>
                 <label class="opacity-row" style="margin-top: 8px;">
-                  <span>Radar opacity</span>
+                  <span>Opacity</span>
                   <input id="radarOpacity" type="range" min="0.1" max="1" step="0.05" value="0.65" />
                 </label>
               </div>
