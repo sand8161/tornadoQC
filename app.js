@@ -173,7 +173,7 @@ async function init() {
 
   state.map.createPane('countyPane');
   state.map.getPane('countyPane').style.zIndex = 350;
-  state.map.on('zoomend moveend', () => {
+  state.map.on('zoomend', () => {
     if (state.countyLayer) renderCountyLabels();
   });
 
@@ -2461,12 +2461,19 @@ function findLabelCenterInsideCounty(map, geometry, preferredCenter, textWidthPx
 }
 
 function renderCountyLabels() {
+  if (!state.map || !window.L) return;
+  if (state.map.getZoom() < 6) {
+    if (state.countyLabelsLayer) {
+      state.map.removeLayer(state.countyLabelsLayer);
+      state.countyLabelsLayer = null;
+    }
+    return;
+  }
+
   if (state.countyLabelsLayer) {
     state.map.removeLayer(state.countyLabelsLayer);
     state.countyLabelsLayer = null;
   }
-
-  if (!state.map || !window.L) return;
 
   const labels = [];
   const countyLayer = state.countyLayer;
@@ -2500,12 +2507,12 @@ function renderCountyLabels() {
     const countyWidthPx = Math.max(30, Math.abs(ne.x - sw.x));
     const countyHeightPx = Math.max(20, Math.abs(ne.y - sw.y));
     const estimatedTextWidthPx = String(name).length * 6.4;
-    const estimatedTextHeightPx = 16;
+    const estimatedTextHeightPx = 14;
 
     if (countyWidthPx < 52 || countyHeightPx < 18) return;
     if (estimatedTextWidthPx > countyWidthPx * 0.8 || estimatedTextHeightPx > countyHeightPx * 0.75) return;
 
-    const fontSize = Math.max(7, Math.min(14, (countyWidthPx / Math.max(estimatedTextWidthPx, 1)) * 9));
+    const fontSize = Math.min(8, Math.max(6, (countyWidthPx / Math.max(estimatedTextWidthPx, 1)) * 8));
     const center = bounds.getCenter();
     const labelCenter = findLabelCenterInsideCounty(
       map,
@@ -2517,7 +2524,7 @@ function renderCountyLabels() {
     if (!labelCenter) return;
 
     const labelHtml = `
-      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:4px; line-height:1; font-weight:500; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
+      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:${fontSize}px; line-height:1; font-weight:700; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
     `;
 
     const label = L.marker([labelCenter.lat, labelCenter.lng], {

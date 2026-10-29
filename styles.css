@@ -637,27 +637,40 @@ textarea {
 }
 
 .layer-menu {
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: auto;
   min-height: 0;
+  overflow: visible;
 }
 
 .layer-menu[open] {
+  display: flex;
+  flex-direction: column;
   overflow: visible;
   min-height: 0;
 }
 
 .layer-menu > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
   list-style: none;
   min-height: 0;
 }
 
-.layer-menu > summary::-webkit-details-marker {
-  display: none;
-}
-
 .layer-menu > div {
-  display: block;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 5px 6px 6px !important;
+  background: rgba(15, 23, 42, 0.02);
+  border-radius: 0 0 8px 8px;
 }
 
 .layer-section {
