@@ -27,6 +27,7 @@ const state = {
   datPointsVisible: true,
   datPathsVisible: true,
   datPolygonsVisible: true,
+  countyLayerVisible: true,
   radarStations: [],
   datRenderers: {},
   countyLabelsLayer: null,
@@ -236,6 +237,7 @@ function bindControls() {
   const yearEndSlider = document.getElementById('yearEndSlider');
   const yearEndSliderWrap = document.querySelector('.year-end-slider');
   const yearStartSlider = document.getElementById('yearStartSlider');
+  const countyLayerToggleButton = document.getElementById('countyLayerToggle');
 
   const syncYearRangeVisibility = () => {
     const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
@@ -286,6 +288,33 @@ function bindControls() {
       state.spcLayerVisible = !state.spcLayerVisible;
       updateSpcControls();
       renderFilteredData({ preserveMapView: true });
+    });
+  }
+
+  if (countyLayerToggleButton) {
+    countyLayerToggleButton.addEventListener('click', () => {
+      state.countyLayerVisible = !state.countyLayerVisible;
+      updateCountyLayerControlStates();
+
+      if (state.countyLayer) {
+        if (state.countyLayerVisible) {
+          if (!state.map.hasLayer(state.countyLayer)) {
+            state.countyLayer.addTo(state.map);
+          }
+        } else if (state.map.hasLayer(state.countyLayer)) {
+          state.map.removeLayer(state.countyLayer);
+        }
+      }
+
+      if (state.countyLabelsLayer) {
+        if (state.countyLayerVisible) {
+          if (!state.map.hasLayer(state.countyLabelsLayer)) {
+            state.countyLabelsLayer.addTo(state.map);
+          }
+        } else if (state.map.hasLayer(state.countyLabelsLayer)) {
+          state.map.removeLayer(state.countyLabelsLayer);
+        }
+      }
     });
   }
 
@@ -1419,6 +1448,17 @@ function updateSpcControls() {
     spcMultiCountyButton.textContent = state.spcMultiCountyOnly ? 'Multi-county only' : 'All paths';
     spcMultiCountyButton.classList.toggle('active', state.spcMultiCountyOnly);
   }
+}
+
+function updateCountyLayerControlStates() {
+  const countyToggle = document.getElementById('countyLayerToggle');
+  if (!countyToggle) return;
+
+  const visible = state.countyLayerVisible;
+  countyToggle.textContent = visible ? 'On' : 'Off';
+  countyToggle.classList.toggle('active', visible);
+  countyToggle.setAttribute('aria-label', visible ? 'Hide county boundaries' : 'Show county boundaries');
+  countyToggle.title = visible ? 'Hide county boundaries' : 'Show county boundaries';
 }
 
 function setStatus(message, isError = false) {
