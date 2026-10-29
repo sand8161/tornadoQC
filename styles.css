@@ -641,16 +641,17 @@ textarea {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: min(70vh, 760px);
+  height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+  max-height: none;
 }
 
 .layer-menu[open] {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .layer-menu > summary {
@@ -672,8 +673,10 @@ textarea {
   padding: 5px 6px 6px !important;
   background: rgba(15, 23, 42, 0.02);
   border-radius: 0 0 8px 8px;
+  max-height: min(62vh, 760px);
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .layer-section {
