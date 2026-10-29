@@ -2517,7 +2517,7 @@ function renderCountyLabels() {
     if (!labelCenter) return;
 
     const labelHtml = `
-      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:${fontSize}px; line-height:1; font-weight:700; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
+      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:4px; line-height:1; font-weight:500; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
     `;
 
     const label = L.marker([labelCenter.lat, labelCenter.lng], {
