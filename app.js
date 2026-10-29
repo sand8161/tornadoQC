@@ -173,6 +173,9 @@ async function init() {
 
   state.map.createPane('countyPane');
   state.map.getPane('countyPane').style.zIndex = 350;
+  state.map.on('zoomend moveend', () => {
+    if (state.countyLayer) renderCountyLabels();
+  });
 
   // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
   state.map.createPane('datPolygonsPane');
@@ -2382,6 +2385,7 @@ function renderCountyLabels() {
   const countyLayer = state.countyLayer;
   if (!countyLayer || !countyLayer.getLayers) return;
 
+  const map = state.map;
   countyLayer.getLayers().forEach((featureLayer) => {
     const feature = featureLayer.feature;
     if (!feature || !feature.properties || !feature.geometry) return;
@@ -2401,19 +2405,37 @@ function renderCountyLabels() {
     );
     if (!name) return;
 
-    const centroid = featureLayer.getBounds ? featureLayer.getBounds().getCenter() : null;
-    if (!centroid) return;
+    const bounds = featureLayer.getBounds ? featureLayer.getBounds() : null;
+    if (!bounds) return;
 
-    const label = L.marker([centroid.lat, centroid.lng], {
+    const sw = map.latLngToContainerPoint(bounds.getSouthWest());
+    const ne = map.latLngToContainerPoint(bounds.getNorthEast());
+    const countyWidthPx = Math.max(30, Math.abs(ne.x - sw.x));
+    const countyHeightPx = Math.max(20, Math.abs(ne.y - sw.y));
+    const estimatedTextWidthPx = String(name).length * (map.getZoom() >= 7 ? 6.1 : 5.2);
+    const maxFitScale = Math.min(
+      countyWidthPx / Math.max(estimatedTextWidthPx, 1),
+      countyHeightPx / 22
+    );
+
+    if (countyWidthPx < 56 || countyHeightPx < 18 || maxFitScale < 0.42) return;
+
+    const fontSize = Math.max(7, Math.min(14, 12 * maxFitScale));
+    const labelHtml = `
+      <span style="display:inline-block; font-size:${fontSize}px; line-height:1; font-weight:700; white-space:nowrap; transform:scale(${Math.min(1, maxFitScale)}); transform-origin:center; text-shadow:0 1px 2px rgba(15,23,42,0.55);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
+    `;
+
+    const center = bounds.getCenter();
+    const label = L.marker([center.lat, center.lng], {
       pane: 'countyPane',
       opacity: 1,
       interactive: false,
       keyboard: false,
       icon: L.divIcon({
         className: 'county-name-label',
-        html: `<span>${name}</span>`,
-        iconSize: [140, 18],
-        iconAnchor: [70, 9]
+        html: labelHtml,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
       })
     });
 
