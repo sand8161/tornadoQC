@@ -895,10 +895,7 @@ function renderEditor() {
   const selectionLabel = document.getElementById('selectionLabel');
   const record = getSelectedRecord();
 
-  const datLayerSection = document.getElementById('datLayerSection');
-  if (datLayerSection) {
-    datLayerSection.classList.toggle('hidden', !record);
-  }
+  updateDatLayerSectionVisibility();
 
   if (!record) {
     if (form) form.classList.add('hidden');
@@ -928,6 +925,15 @@ function renderEditor() {
   if (selectionLabel) {
     selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
   }
+}
+
+function updateDatLayerSectionVisibility() {
+  const datLayerSection = document.getElementById('datLayerSection');
+  if (!datLayerSection) return;
+
+  const hasSelectedRecord = !!getSelectedRecord();
+  const hasDatMatches = Array.isArray(state.noaaDatMatches) && state.noaaDatMatches.length > 0;
+  datLayerSection.classList.toggle('hidden', !(hasSelectedRecord || hasDatMatches));
 }
 
 function toCsv(rows) {
@@ -1138,6 +1144,7 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   state.noaaDatMatches = matches || [];
   renderDatLayer(state.noaaDatMatches);
+  updateDatLayerSectionVisibility();
 
   if (matches && matches.length) {
     setStatus(`Selected ${record.reportId || record.id}. DAT found ${matches.length} feature(s).`, false);
@@ -1173,6 +1180,7 @@ function clearDatLayer(clearData = false) {
   if (clearData) {
     state.noaaDatMatches = [];
   }
+  updateDatLayerSectionVisibility();
 }
 
 function clearRadarLayer(clearCache = false) {
@@ -1196,6 +1204,8 @@ function clearRadarLayer(clearCache = false) {
 function renderDatLayer(features) {
   clearDatLayer(false);
   if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
+
+  updateDatLayerSectionVisibility();
 
   const layers = features
     .map((feature) => {
