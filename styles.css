@@ -69,6 +69,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  max-height: 100%;
 }
 
 .branding {
@@ -640,16 +641,16 @@ textarea {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: auto;
+  max-height: min(70vh, 760px);
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .layer-menu[open] {
   display: flex;
   flex-direction: column;
-  overflow: visible;
   min-height: 0;
+  overflow: hidden;
 }
 
 .layer-menu > summary {
@@ -671,6 +672,8 @@ textarea {
   padding: 5px 6px 6px !important;
   background: rgba(15, 23, 42, 0.02);
   border-radius: 0 0 8px 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .layer-section {
