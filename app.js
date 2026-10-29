@@ -2412,20 +2412,18 @@ function renderCountyLabels() {
     const ne = map.latLngToContainerPoint(bounds.getNorthEast());
     const countyWidthPx = Math.max(30, Math.abs(ne.x - sw.x));
     const countyHeightPx = Math.max(20, Math.abs(ne.y - sw.y));
-    const estimatedTextWidthPx = String(name).length * (map.getZoom() >= 7 ? 6.1 : 5.2);
-    const maxFitScale = Math.min(
-      countyWidthPx / Math.max(estimatedTextWidthPx, 1),
-      countyHeightPx / 22
-    );
+    const estimatedTextWidthPx = String(name).length * 6.4;
+    const estimatedTextHeightPx = 16;
 
-    if (countyWidthPx < 56 || countyHeightPx < 18 || maxFitScale < 0.42) return;
+    if (countyWidthPx < 52 || countyHeightPx < 18) return;
+    if (estimatedTextWidthPx > countyWidthPx * 0.8 || estimatedTextHeightPx > countyHeightPx * 0.75) return;
 
-    const fontSize = Math.max(7, Math.min(14, 12 * maxFitScale));
+    const fontSize = Math.max(7, Math.min(14, (countyWidthPx / Math.max(estimatedTextWidthPx, 1)) * 9));
+    const center = bounds.getCenter();
     const labelHtml = `
-      <span style="display:inline-block; font-size:${fontSize}px; line-height:1; font-weight:700; white-space:nowrap; transform:scale(${Math.min(1, maxFitScale)}); transform-origin:center; text-shadow:0 1px 2px rgba(15,23,42,0.55);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
+      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:${fontSize}px; line-height:1; font-weight:700; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
     `;
 
-    const center = bounds.getCenter();
     const label = L.marker([center.lat, center.lng], {
       pane: 'countyPane',
       opacity: 1,
