@@ -2373,6 +2373,93 @@ async function loadCountyBoundaries() {
   }
 }
 
+function pointInPolygon(latlng, ring) {
+  const x = latlng.lng;
+  const y = latlng.lat;
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+
+    const intersects = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi);
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
+function pointInCountyGeometry(latlng, geometry) {
+  if (!geometry) return false;
+
+  if (geometry.type === 'Polygon') {
+    return geometry.coordinates.some((ring) => pointInPolygon(latlng, ring));
+  }
+
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some((polygon) =>
+      polygon.some((ring) => pointInPolygon(latlng, ring))
+    );
+  }
+
+  return false;
+}
+
+function findLabelCenterInsideCounty(map, geometry, preferredCenter, textWidthPx, textHeightPx) {
+  const preferredPoint = map.latLngToContainerPoint(preferredCenter);
+  const searchRadius = Math.max(18, Math.min(90, Math.max(textWidthPx, textHeightPx) * 0.75));
+  const candidates = [];
+
+  for (let y = -searchRadius; y <= searchRadius; y += Math.max(8, searchRadius / 4)) {
+    for (let x = -searchRadius; x <= searchRadius; x += Math.max(8, searchRadius / 4)) {
+      const testPoint = map.containerPointToLatLng({
+        x: preferredPoint.x + x,
+        y: preferredPoint.y + y,
+      });
+
+      if (!pointInCountyGeometry(testPoint, geometry)) continue;
+
+      const halfW = textWidthPx / 2;
+      const halfH = textHeightPx / 2;
+      const samplePoints = [
+        { x: x - halfW, y: y - halfH },
+        { x: x + halfW, y: y - halfH },
+        { x: x - halfW, y: y + halfH },
+        { x: x + halfW, y: y + halfH },
+        { x: x, y: y - halfH },
+        { x: x, y: y + halfH },
+        { x: x - halfW, y: y },
+        { x: x + halfW, y: y },
+        { x: x, y: y },
+      ];
+
+      const fits = samplePoints.every((offset) => {
+        const sampleLatLng = map.containerPointToLatLng({
+          x: preferredPoint.x + offset.x,
+          y: preferredPoint.y + offset.y,
+        });
+        return pointInCountyGeometry(sampleLatLng, geometry);
+      });
+
+      if (fits) {
+        candidates.push({
+          point: testPoint,
+          distance: Math.hypot(x, y),
+        });
+      }
+    }
+  }
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => a.distance - b.distance);
+  return candidates[0].point;
+}
+
 function renderCountyLabels() {
   if (state.countyLabelsLayer) {
     state.map.removeLayer(state.countyLabelsLayer);
@@ -2420,11 +2507,20 @@ function renderCountyLabels() {
 
     const fontSize = Math.max(7, Math.min(14, (countyWidthPx / Math.max(estimatedTextWidthPx, 1)) * 9));
     const center = bounds.getCenter();
+    const labelCenter = findLabelCenterInsideCounty(
+      map,
+      feature.geometry,
+      center,
+      estimatedTextWidthPx,
+      estimatedTextHeightPx
+    );
+    if (!labelCenter) return;
+
     const labelHtml = `
       <span style="display:inline-flex; align-items:center; justify-content:center; font-size:${fontSize}px; line-height:1; font-weight:700; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
     `;
 
-    const label = L.marker([center.lat, center.lng], {
+    const label = L.marker([labelCenter.lat, labelCenter.lng], {
       pane: 'countyPane',
       opacity: 1,
       interactive: false,
