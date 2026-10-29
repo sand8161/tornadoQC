@@ -1031,3 +1031,32 @@ textarea {
 .details-panel.hidden {
   display: none !important;
 }
+
+.county-name-label {
+  background: rgba(15, 23, 42, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  padding: 2px 7px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.county-name-label span {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(226, 232, 240, 0.92);
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.7);
+}
+
+body.theme-light .county-name-label {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+body.theme-light .county-name-label span {
+  color: rgba(15, 23, 42, 0.82);
+  text-shadow: none;
+}

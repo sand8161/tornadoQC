@@ -2335,7 +2335,7 @@ async function loadCountyBoundaries() {
     const shpUrl = resolveAssetUrl(`${basePath}.shp`);
     const geojson = await shp(shpUrl);
 
-    L.geoJSON(geojson, {
+    state.countyLayer = L.geoJSON(geojson, {
       pane: 'countyPane',
       style: {
         color: '#64748b',
@@ -2345,11 +2345,13 @@ async function loadCountyBoundaries() {
         fillOpacity: 0,
         interactive: false
       }
-    }).addTo(state.map);
+    });
+    state.countyLayer.addTo(state.map);
+    renderCountyLabels();
   } catch (err) {
     try {
       const geojsonDir = await shp(resolveAssetUrl(basePath));
-      L.geoJSON(geojsonDir, {
+      state.countyLayer = L.geoJSON(geojsonDir, {
         pane: 'countyPane',
         style: {
           color: '#64748b',
@@ -2359,7 +2361,9 @@ async function loadCountyBoundaries() {
           fillOpacity: 0,
           interactive: false
         }
-      }).addTo(state.map);
+      });
+      state.countyLayer.addTo(state.map);
+      renderCountyLabels();
     } catch (dirErr) {
       console.warn('Failed to load county shapefile:', err, dirErr);
     }
@@ -2381,7 +2385,20 @@ function renderCountyLabels() {
   countyLayer.getLayers().forEach((featureLayer) => {
     const feature = featureLayer.feature;
     if (!feature || !feature.properties || !feature.geometry) return;
-    const name = feature.properties.NAME || feature.properties.name || feature.properties.County || feature.properties.county;
+
+    const props = feature.properties;
+    const name = firstNonEmpty(
+      props.NAME,
+      props.name,
+      props.NAMELSAD,
+      props.namelsad,
+      props.County,
+      props.county,
+      props.NAME_1,
+      props.name_1,
+      props.CountyName,
+      props.county_name
+    );
     if (!name) return;
 
     const centroid = featureLayer.getBounds ? featureLayer.getBounds().getCenter() : null;
@@ -2389,14 +2406,14 @@ function renderCountyLabels() {
 
     const label = L.marker([centroid.lat, centroid.lng], {
       pane: 'countyPane',
-      opacity: 0,
+      opacity: 1,
       interactive: false,
       keyboard: false,
       icon: L.divIcon({
         className: 'county-name-label',
         html: `<span>${name}</span>`,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
+        iconSize: [140, 18],
+        iconAnchor: [70, 9]
       })
     });
 
