@@ -1045,7 +1045,9 @@ function renderFilteredData(options = {}) {
       dashArray: isSpc ? '8 8' : null,
     });
 
-    polyline.bindPopup(buildPopup(row));
+    if (row.source !== 'CSV') {
+      polyline.bindPopup(buildPopup(row));
+    }
     polyline.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
       await handleTrackSelection(row, true);
@@ -1061,7 +1063,9 @@ function renderFilteredData(options = {}) {
       weight: 1,
       opacity: layerOpacity,
     });
-    startMarker.bindPopup(buildPopup(row));
+    if (row.source !== 'CSV') {
+      startMarker.bindPopup(buildPopup(row));
+    }
     startMarker.on('click', async (event) => {
       L.DomEvent.stopPropagation(event);
       await handleTrackSelection(row, true);
@@ -1115,15 +1119,14 @@ let currentDatSearchId = 0;
 async function handleTrackSelection(record, preserveMapView = true) {
   if (!record) return;
 
+  if (record.source !== 'CSV') {
+    return;
+  }
+
   state.selectedId = record.id;
   renderEditor();
+  renderDetailsPanel(record);
 
-  // Open right panel for CSV tracks; hide it for SPC tracks
-  if (record.source === 'CSV') {
-    renderDetailsPanel(record);
-  } else {
-    hideDetailsPanel();
-  }
   if (state.radarLayer) {
     state.map.removeLayer(state.radarLayer);
     state.radarLayer = null;
@@ -2622,7 +2625,6 @@ function updateExportButtonLabel() {
 function renderEditor() {
   const form = document.getElementById('segmentForm');
   const empty = document.getElementById('selectionEmpty');
-  const selectionLabel = document.getElementById('selectionLabel');
   const record = getSelectedRecord();
   const pathLookupPanel = document.getElementById('pathLookupPanel');
 
@@ -2633,7 +2635,6 @@ function renderEditor() {
   if (!record) {
     if (form) form.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
-    if (selectionLabel) selectionLabel.textContent = '';
     return;
   }
 
@@ -2655,7 +2656,4 @@ function renderEditor() {
   document.getElementById('pathWidth').value = record.widthYards ?? '';
   document.getElementById('qcNotes').value = record.qcNotes || '';
 
-  if (selectionLabel) {
-    selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
-  }
 }

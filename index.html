@@ -125,7 +125,7 @@
               </div>
               <div class="radar-control-grid">
                 <button id="radarReflectivityBtn" type="button" class="secondary active layer-button-small">Reflectivity</button>
-                <button id="radarVelocityBtn" type="button" class="secondary layer-button-small">Velocity</button>
+                <button id="radarVelocityBtn" type="button" class="secondary layer-button-small">SR Velocity</button>
               </div>
               
               <div id="radarTimeScrubber" class="hidden radar-time-scrubber">
@@ -208,8 +208,6 @@
           </div>
 
           <div id="selectionEmpty" class="selection-empty">Select a tornado segment on the map to edit its times, coordinates, and notes.</div>
-          <div id="selectionLabel" class="selection-label" aria-live="polite"></div>
-
           <div id="pathLookupPanel" class="selection-empty lookup-section">
             <div class="lookup-label">Search NCEI Path ID</div>
             <div class="lookup-controls">
@@ -285,7 +283,6 @@
               <h2 id="detailsTitle">Track Details</h2>
               <span id="detailsSubtitle" class="details-subtitle"></span>
             </div>
-            <button id="closeDetailsBtn" type="button" class="secondary details-close-btn" title="Close Panel">&times;</button>
           </div>
           <div class="details-content">
             <div id="detailsOverviewSection" class="hidden">
