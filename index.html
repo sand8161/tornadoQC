@@ -189,10 +189,13 @@
 
       <main class="map-panel">
         <div id="map" aria-label="Tornado map"></div>
+        <div id="mapRadarControls" class="map-radar-controls" aria-label="Radar time controls">
+          <button id="mapRadarStepBackBtn" type="button" class="secondary radar-step-btn map-radar-step-btn" title="Previous Scan" onclick="document.getElementById('radarStepBackBtn')?.click();">&laquo;</button>
+          <button id="mapRadarStepFwdBtn" type="button" class="secondary radar-step-btn map-radar-step-btn" title="Next Scan" onclick="document.getElementById('radarStepFwdBtn')?.click();">&raquo;</button>
+        </div>
         <div id="status" class="status-banner">Loading NOAA Storm Prediction Center Onetor dataset…</div>
       </main>
 
-      <!-- New permanent right sidebar column -->
       <aside class="right-sidebar">
         <section class="editor-panel">
           <div class="editor-header">
@@ -304,5 +307,36 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
     <script src="./app.js?v=20261023-1"></script>
+    <script>
+      (() => {
+        const mapRadarControls = document.getElementById('mapRadarControls');
+        const radarControls = document.getElementById('radarControls');
+        const radarOffBtn = document.getElementById('radarOffBtn');
+        const radarStepBackBtn = document.getElementById('radarStepBackBtn');
+        const radarStepFwdBtn = document.getElementById('radarStepFwdBtn');
+
+        function syncMapRadarVisibility() {
+          if (!mapRadarControls) return;
+          const radarEnabled = Boolean(radarOffBtn && radarOffBtn.textContent.trim() === 'On');
+          const radarVisibleInMenu = Boolean(radarControls && !radarControls.classList.contains('hidden'));
+          mapRadarControls.classList.toggle('hidden', !(radarEnabled && radarVisibleInMenu));
+        }
+
+        ['click', 'change', 'input'].forEach((eventName) => {
+          radarOffBtn?.addEventListener(eventName, syncMapRadarVisibility);
+          radarStepBackBtn?.addEventListener(eventName, syncMapRadarVisibility);
+          radarStepFwdBtn?.addEventListener(eventName, syncMapRadarVisibility);
+        });
+
+        const observer = new MutationObserver(() => syncMapRadarVisibility());
+        if (radarControls) {
+          observer.observe(radarControls, { attributes: true, attributeFilter: ['class'] });
+        }
+        if (radarOffBtn) {
+          observer.observe(radarOffBtn, { childList: true, subtree: true, characterData: true });
+        }
+        syncMapRadarVisibility();
+      })();
+    </script>
   </body>
 </html>
