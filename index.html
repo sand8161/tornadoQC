@@ -16,15 +16,14 @@
   <body class="theme-dark">
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="branding" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;">
-          <!-- Left group: Title & Theme Toggle -->
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <h1 style="margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em;">TornadoQC</h1>
-            <button id="themeToggleBtn" type="button" aria-label="Toggle light/dark theme" title="Toggle theme" style="background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: auto; height: auto;">
-              <span id="themeToggleIcon" style="display: flex; align-items: center;"></span>
+        <div class="branding branding-row">
+          <div class="branding-title-group">
+            <h1 class="brand-title">TornadoQC</h1>
+            <button id="themeToggleBtn" type="button" class="theme-toggle-btn" aria-label="Toggle light/dark theme" title="Toggle theme">
+              <span id="themeToggleIcon" class="theme-toggle-icon"></span>
             </button>
-            <span class="stat-label" style="color: var(--muted); font-size: 0.7rem;">Tracks:</span>
-            <strong id="trackCount" style="color: var(--accent, #38bdf8); font-size: 0.8rem; font-weight: 700;">0</strong>
+            <span class="stat-label brand-stat-label">Tracks:</span>
+            <strong id="trackCount" class="brand-stat-value">0</strong>
           </div>
         </div>
 
@@ -62,13 +61,13 @@
         </div>
 
         <!-- Collapsible Layers Menu -->
-        <details class="layer-menu" open style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px;">
-          <summary style="padding: 6px 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; background: rgba(128, 128, 128, 0.05);">
+        <details class="layer-menu layer-menu-card" open>
+          <summary class="layer-menu-summary">
             <span>Map Layers &amp; Radar</span>
-            <span style="font-size: 0.75rem; color: var(--muted);">&#9662;</span>
+            <span class="layer-menu-summary-caret">&#9662;</span>
           </summary>
           
-          <div style="padding: 4px 6px 5px; display: flex; flex-direction: column; gap: 4px;">
+          <div class="layer-menu-body">
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NCEI Reports</span>
@@ -86,7 +85,7 @@
                 <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">On</button>
               </div>
               <div class="layer-controls">
-                <button id="spcMultiCountyBtn" type="button" class="secondary" style="font-size: 0.6rem;">All counties</button>
+                <button id="spcMultiCountyBtn" type="button" class="secondary layer-button-small">All counties</button>
                 <label class="opacity-row">
                   <span>Opacity</span>
                   <input id="spcOpacity" type="range" min="0.1" max="1" step="0.05" value="0.8" />
@@ -107,10 +106,10 @@
                 <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">On</button>
               </div>
               <div class="layer-controls">
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
-                  <button id="datPolyToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Polygons</button>
-                  <button id="datPathToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Paths</button>
-                  <button id="datPointToggle" type="button" class="secondary active" style="font-size: 0.6rem;">Points</button>
+                <div class="dat-button-grid">
+                  <button id="datPolyToggle" type="button" class="secondary active panel-button-small">Polygons</button>
+                  <button id="datPathToggle" type="button" class="secondary active panel-button-small">Paths</button>
+                  <button id="datPointToggle" type="button" class="secondary active panel-button-small">Points</button>
                 </div>
                 <label class="opacity-row">
                   <span>Opacity</span>
@@ -119,28 +118,28 @@
               </div>
             </div>
 
-            <div id="radarControls" class="hidden" style="padding-top: 6px; border-top: 1px solid var(--border);">
+            <div id="radarControls" class="hidden radar-controls-panel">
               <div class="layer-header">
                 <span class="layer-title">Radar (IEM)</span>
                 <button id="radarOffBtn" type="button" class="layer-eye active" aria-label="Turn radar off" title="Turn radar off">On</button>
               </div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; margin-bottom: 6px;">
-                <button id="radarReflectivityBtn" type="button" class="secondary active" style="font-size: 0.6rem;">Reflectivity</button>
-                <button id="radarVelocityBtn" type="button" class="secondary" style="font-size: 0.6rem;">Velocity</button>
+              <div class="radar-control-grid">
+                <button id="radarReflectivityBtn" type="button" class="secondary active layer-button-small">Reflectivity</button>
+                <button id="radarVelocityBtn" type="button" class="secondary layer-button-small">Velocity</button>
               </div>
               
-              <div id="radarTimeScrubber" class="hidden" style="margin-top: 8px;">
-                <div style="text-align: center; font-size: 0.6rem; margin-bottom: 4px;">
-                  <span id="radarSiteLabel" style="color: var(--muted);">(--)</span>
-                  <span style="color: var(--muted);">Scan Time: </span> 
-                  <strong id="radarOffsetLabel" style="color: var(--accent);">--:-- UTC</strong>
+              <div id="radarTimeScrubber" class="hidden radar-time-scrubber">
+                <div class="radar-scan-meta">
+                  <span id="radarSiteLabel" class="radar-site-label">(--)</span>
+                  <span class="radar-site-label">Scan Time: </span>
+                  <strong id="radarOffsetLabel" class="radar-offset-label">--:-- UTC</strong>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <button id="radarStepBackBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="Previous Scan">&laquo;</button>
-                  <input id="radarTimeSlider" type="range" min="0" max="0" step="1" value="0" style="flex-grow: 1; cursor: pointer; margin: 0;" />
-                  <button id="radarStepFwdBtn" type="button" class="secondary" style="padding: 4px 8px; width: auto; flex-shrink: 0; font-size: 0.8rem;" title="Next Scan">&raquo;</button>
+                <div class="radar-time-controls">
+                  <button id="radarStepBackBtn" type="button" class="secondary radar-step-btn" title="Previous Scan">&laquo;</button>
+                  <input id="radarTimeSlider" type="range" min="0" max="0" step="1" value="0" />
+                  <button id="radarStepFwdBtn" type="button" class="secondary radar-step-btn" title="Next Scan">&raquo;</button>
                 </div>
-                <label class="opacity-row" style="margin-top: 8px;">
+                <label class="opacity-row compact">
                   <span>Opacity</span>
                   <input id="radarOpacity" type="range" min="0.1" max="1" step="0.05" value="0.65" />
                 </label>
@@ -169,20 +168,20 @@
           <div class="legend">
             <h2>DAT Type</h2>
             <div class="legend-row">
-              <svg width="12" height="12" viewBox="0 0 14 14" style="margin-right: -2px;"><polygon points="0,0 14,0 7,14" fill="#a8a29e" stroke="#fff" stroke-width="1"/></svg> 
+              <svg class="legend-svg-tornado" width="12" height="12" viewBox="0 0 14 14"><polygon points="0,0 14,0 7,14" fill="#a8a29e" stroke="#fff" stroke-width="1"/></svg> 
               Tornado
             </div>
             <div class="legend-row">
-              <span class="legend-swatch" style="background: #8b5cf6; border-radius: 50%;"></span> Wind
+              <span class="legend-swatch legend-swatch-tiny"></span> Wind
             </div>
             <div class="legend-row">
-              <span class="legend-swatch" style="background: #10b981; border-radius: 50%;"></span> Tropical
+              <span class="legend-swatch legend-swatch-green"></span> Tropical
             </div>
             <div class="legend-row">
-              <span class="legend-swatch" style="background: transparent; border: 2px solid #888;"></span> Path
+              <span class="legend-swatch legend-swatch-path"></span> Path
             </div>
             <div class="legend-row">
-              <span class="legend-swatch" style="background: rgba(136, 136, 136, 0.3); border: 1px solid #888; border-radius: 2px;"></span> Area
+              <span class="legend-swatch legend-swatch-area"></span> Area
             </div>
           </div>
         </div>
@@ -195,13 +194,12 @@
 
       <!-- New permanent right sidebar column -->
       <aside class="right-sidebar">
-        
         <section class="editor-panel">
           <div class="editor-header">
             <h2>QC editor</h2>
-            <div style="display: flex; gap: 6px;">
-              <button id="zoomToTrackBtn" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Zoom</button>
-              <button id="clearSelection" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Clear</button>
+            <div class="editor-actions">
+              <button id="zoomToTrackBtn" type="button" class="secondary editor-toolbar-btn">Zoom</button>
+              <button id="clearSelection" type="button" class="secondary editor-toolbar-btn">Clear</button>
             </div>
             <button id="saveChanges" type="button" class="primary">Save changes</button>
           </div>
@@ -209,11 +207,11 @@
           <div id="selectionEmpty" class="selection-empty">Select a tornado segment on the map to edit its times, coordinates, and notes.</div>
           <div id="selectionLabel" class="selection-label" aria-live="polite"></div>
 
-          <div id="pathLookupPanel" class="selection-empty" style="margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
-            <div style="font-size: 0.76rem; font-weight: 600; margin-bottom: 6px; color: var(--muted);">Search NCEI Path ID</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input id="pathIdLookup" type="text" placeholder="Enter path ID" style="flex: 1; min-width: 0;" />
-              <button id="pathIdLookupBtn" type="button" class="secondary" style="font-size: 0.75rem; padding: 4px 8px; width: auto;">Find</button>
+          <div id="pathLookupPanel" class="selection-empty lookup-section">
+            <div class="lookup-label">Search NCEI Path ID</div>
+            <div class="lookup-controls">
+              <input id="pathIdLookup" type="text" class="lookup-input" placeholder="Enter path ID" />
+              <button id="pathIdLookupBtn" type="button" class="secondary lookup-button">Find</button>
             </div>
           </div>
 
@@ -268,7 +266,7 @@
               </label>
             </div>
 
-            <div class="field-row" style="margin-top: 12px;">
+            <div class="field-row notes-row">
               <label>
                 QC notes
                 <textarea id="qcNotes" placeholder="Add notes about the track correction..."></textarea>
@@ -284,7 +282,7 @@
               <h2 id="detailsTitle">Track Details</h2>
               <span id="detailsSubtitle" class="details-subtitle"></span>
             </div>
-            <button id="closeDetailsBtn" type="button" class="secondary" title="Close Panel" style="display:none;">&times;</button>
+            <button id="closeDetailsBtn" type="button" class="secondary details-close-btn" title="Close Panel">&times;</button>
           </div>
           <div class="details-content">
             <div id="detailsOverviewSection" class="hidden">
@@ -299,7 +297,6 @@
             </div>
           </div>
         </section>
-
       </aside>
     </div>
 

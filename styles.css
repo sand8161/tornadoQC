@@ -82,6 +82,27 @@ body {
   gap: 6px;
 }
 
+.branding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.branding-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-title {
+  margin: 5px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 .eyebrow {
   font-size: 11px;
   font-weight: 700;
@@ -477,7 +498,7 @@ button:hover {
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid var(--border);
   border-radius: 10px;
-  min-width: 20px;
+  min-width: 200px;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -887,14 +908,14 @@ textarea {
   flex: 0 0 auto;
   width: 100%;
   max-width: 100%;
-  min-width: 0;
+  min-width: 10px;
 }
 
 .editor-panel,
 .details-panel {
   width: 100%;
   max-width: 100%;
-  min-width: 0;
+  min-width: 10px;
   background: var(--editor-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1097,4 +1118,248 @@ textarea {
 body.theme-light .county-name-label > span {
   color: rgba(15, 23, 42, 0.82);
   text-shadow: none;
+}
+
+.brand-stat-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.brand-stat-value {
+  color: var(--accent, #38bdf8);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.layer-menu-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.layer-menu-summary {
+  padding: 6px 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(128, 128, 128, 0.05);
+}
+
+.layer-menu-summary-caret {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.layer-menu-body {
+  padding: 4px 6px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layer-button-small {
+  font-size: 0.6rem;
+}
+
+.radar-controls-panel {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.radar-control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+  margin-bottom: 6px;
+}
+
+.radar-time-scrubber {
+  margin-top: 8px;
+}
+
+.radar-scan-meta {
+  text-align: center;
+  font-size: 0.6rem;
+  margin-bottom: 4px;
+}
+
+.radar-site-label {
+  color: var(--muted);
+}
+
+.radar-offset-label {
+  color: var(--accent);
+}
+
+.radar-time-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radar-step-btn {
+  padding: 4px 8px;
+  width: auto;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.opacity-row.compact {
+  margin-top: 8px;
+}
+
+.lookup-section {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.lookup-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.lookup-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.lookup-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lookup-button {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  width: auto;
+}
+
+.notes-row {
+  margin-top: 12px;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.editor-toolbar-btn {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  width: auto;
+}
+
+.dat-button-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.legend-swatch-tiny {
+  background: #8b5cf6;
+  border-radius: 50%;
+}
+
+.legend-swatch-green {
+  background: #10b981;
+  border-radius: 50%;
+}
+
+.legend-swatch-path {
+  background: transparent;
+  border: 2px solid #888;
+}
+
+.legend-swatch-area {
+  background: rgba(136, 136, 136, 0.3);
+  border: 1px solid #888;
+  border-radius: 2px;
+}
+
+.legend-svg-tornado {
+  margin-right: -2px;
+}
+
+@media (max-width: 960px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .sidebar,
+  .right-sidebar,
+  .map-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .sidebar {
+    order: 1;
+    overflow: visible;
+    max-height: none;
+    padding: 10px;
+  }
+
+  .brand-title {
+    font-size: 1rem;
+  }
+
+  .map-panel {
+    order: 2;
+    min-height: 52vh;
+    height: 52vh;
+  }
+
+  .right-sidebar {
+    position: static;
+    top: auto;
+    right: auto;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: auto;
+  }
+
+  .editor-panel {
+    position: relative;
+    top: auto;
+    right: auto;
+    max-height: none;
+    width: 100%;
+  }
+
+  .details-panel {
+    max-height: none;
+    width: 100%;
+  }
+
+  .layer-menu-summary {
+    font-size: 0.8rem;
+  }
+
+  .actions {
+    margin-top: 0;
+  }
 }
