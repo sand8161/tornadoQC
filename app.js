@@ -309,13 +309,13 @@ async function handleTrackSelection(record, preserveMapView = true) {
 
   const startIcon = L.divIcon({
     className: 'edit-handle-icon',
-    html: `<div style="width:14px; height:14px; background:#4ade80; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
+    html: `<div style="width:14px; height:14px; background:#007B5Dff; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7]
   });
   const endIcon = L.divIcon({
     className: 'edit-handle-icon',
-    html: `<div style="width:14px; height:14px; background:#ef4444; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
+    html: `<div style="width:14px; height:14px; background:#af0000ff; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7]
   });
@@ -1443,7 +1443,7 @@ function bindControls() {
     if (el) el.addEventListener('input', syncCoordinatesToMap);
   });
 
-  // --- ADD TINY RESET BUTTONS TO QC FIELDS ---
+// --- ADD TINY ACTION BUTTONS TO QC FIELDS ---
   const fieldMapping = {
     'reportId': 'reportId',
     'beginDate': 'beginDate',
@@ -1467,38 +1467,79 @@ function bindControls() {
     if (label) {
       label.style.position = 'relative';
       
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'secondary reset-field-btn';
-      btn.innerHTML = '↺';
-      btn.title = 'Reset to saved value';
-      
-      Object.assign(btn.style, {
+      // Container for the buttons
+      const btnGroup = document.createElement('div');
+      Object.assign(btnGroup.style, {
         position: 'absolute',
         right: '0',
         top: '-2px',
-        width: '20px',
-        height: '20px',
-        padding: '0',
-        fontSize: '12px',
-        lineHeight: '1',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: '4px',
-        border: '1px solid var(--border)',
-        background: 'transparent',
-        cursor: 'pointer',
-        color: 'var(--muted)',
-        transition: 'color 0.2s'
+        gap: '4px'
       });
       
-      btn.onmouseover = () => btn.style.color = 'var(--text)';
-      btn.onmouseout = () => btn.style.color = 'var(--muted)';
-      
-      label.appendChild(btn);
+      // Helper to generate identical tiny buttons
+      const createTinyBtn = (icon, title, extraClass = '') => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `secondary ${extraClass}`.trim();
+        btn.innerHTML = icon;
+        btn.title = title;
+        
+        Object.assign(btn.style, {
+          width: '16px',
+          height: '16px',
+          padding: '0',
+          fontSize: '8px',
+          lineHeight: '1',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: '4px',
+          border: '1px solid var(--border)',
+          background: 'transparent',
+          cursor: 'pointer',
+          color: 'var(--muted)',
+          transition: 'color 0.2s',
+          verticalAlign: 'middle'
+        });
+        
+        btn.onmouseover = () => btn.style.color = 'var(--text)';
+        btn.onmouseout = () => btn.style.color = 'var(--muted)';
+        
+        return btn;
+      };
 
-      btn.addEventListener('click', () => {
+      // 1. Copy Button
+      const copyBtn = createTinyBtn('📑', 'Copy field value');
+      copyBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          await navigator.clipboard.writeText(input.value);
+          copyBtn.innerHTML = '✓';
+          setTimeout(() => copyBtn.innerHTML = '✨', 1000);
+        } catch (err) {
+          console.error('Failed to copy', err);
+        }
+      });
+
+      // 2. Paste Button
+      const pasteBtn = createTinyBtn('📋', 'Paste into field');
+      pasteBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          input.value = await navigator.clipboard.readText();
+          // Dispatch events in case other listeners are tracking input changes
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (err) {
+          console.error('Failed to paste', err);
+        }
+      });
+
+      // 3. Reset Button (with your exact original logic)
+      const resetBtn = createTinyBtn('↺', 'Reset to saved value', 'reset-field-btn');
+      resetBtn.addEventListener('click', (e) => {
+        e.preventDefault();
         const record = getSelectedRecord();
         if (!record) return;
         
@@ -1514,6 +1555,13 @@ function bindControls() {
           input.value = record[fieldMapping[inputId]] ?? '';
         }
       });
+
+      // Append all buttons to the group, then the group to the label
+      btnGroup.appendChild(copyBtn);
+      btnGroup.appendChild(pasteBtn);
+      btnGroup.appendChild(resetBtn);
+      
+      label.appendChild(btnGroup);
     }
   });
 }
@@ -1595,7 +1643,7 @@ function renderFilteredData(options = {}) {
 
   filtered.forEach((row) => {
     const isSpc = row.source === 'SPC';
-    const color = magnitudeColor(row.magnitude);
+    const color = getUnifiedTrackColor(row.magnitude);
     const startPoint = [row.beginLatitude, row.beginLongitude];
     const endPoint = [row.endLatitude, row.endLongitude];
     const layerOpacity = isSpc ? state.spcOpacity : state.nceiOpacity;
@@ -1859,7 +1907,7 @@ function renderDatLayer(features) {
       if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
         if (!state.datPointsVisible) return null;
         const [lon, lat] = geometry.coordinates;
-        const color = datColorByEf(efValue);
+        const color = getUnifiedTrackColor(efValue);
         const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
 
         if (isNonTornado) {
@@ -1891,7 +1939,7 @@ function renderDatLayer(features) {
         const line = L.polyline(latLngs, {
           pane: 'datLinesPane',
           renderer: state.datRenderers.lines,
-          color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
+          color: getUnifiedTrackColor(efValue), weight: 3, opacity: state.datOpacity,
         });
         
         line.bindPopup(popupHtml);
@@ -1924,8 +1972,8 @@ function renderDatLayer(features) {
           style: {
             pane: 'datPolygonsPane',
             renderer: state.datRenderers.polygons,
-            color: datColorByEf(efValue), 
-            fillColor: datColorByEf(efValue), 
+            color: getUnifiedTrackColor(efValue), 
+            fillColor: getUnifiedTrackColor(efValue), 
             fillOpacity: state.datOpacity * 0.35, 
             weight: 2, 
             opacity: state.datOpacity,
@@ -1943,25 +1991,47 @@ function renderDatLayer(features) {
   layers.forEach((layer) => layer.addTo(state.datLayerGroup));
 }
 
-function datColorByEf(value) {
-  const text = String(value || '').trim().toUpperCase();
-  
-  // Custom non-tornado colors distinct from EF palette
-  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6'; // Vivid Purple
-  if (text.includes('TROPICAL')) return '#10b981'; // Emerald Green
-  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e'; // Warm Grey
+let paletteCache = null;
 
-  const palette = {
-    'EF5': '#9d174d',
-    'EF4': '#dc2626',
-    'EF3': '#f59e0b',
-    'EF3+': '#f59e0b',
-    'EF2': '#facc15',
-    'EF1': '#4ade80',
-    'EF0': '#22d3ee',
-    'EFU': '#64748b',
-  };
-  return palette[text] || '#a8a29e';
+function getUnifiedTrackColor(value) {
+  // 1. Build cache from CSS variables once
+  if (!paletteCache) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    paletteCache = {
+      'EF5': rootStyle.getPropertyValue('--ef5').trim(),
+      'EF4': rootStyle.getPropertyValue('--ef4').trim(),
+      'EF3': rootStyle.getPropertyValue('--ef3').trim(),
+      'EF2': rootStyle.getPropertyValue('--ef2').trim(),
+      'EF1': rootStyle.getPropertyValue('--ef1').trim(),
+      'EF0': rootStyle.getPropertyValue('--ef0').trim(),
+      'EFU': rootStyle.getPropertyValue('--efu').trim(),
+      'WIND': rootStyle.getPropertyValue('--wind').trim(),
+      'TROPICAL': rootStyle.getPropertyValue('--tropical').trim(),
+      'OTHER': rootStyle.getPropertyValue('--other').trim(),
+    };
+  }
+
+  const text = String(value || '').trim().toUpperCase();
+
+  // 2. Check for non-tornado strings
+  if (text.includes('TSTM') || text.includes('WIND')) return paletteCache['WIND'];
+  if (text.includes('TROPICAL')) return paletteCache['TROPICAL'];
+  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return paletteCache['OTHER'];
+  if (text === 'EFU') return paletteCache['EFU'];
+
+  // 3. Extract the numeric magnitude (handles "4", "EF4", "F4", "EF3+")
+  const match = text.match(/\d+/);
+  const magnitude = match ? Number(match[0]) : Number(value);
+
+  // 4. Return the standard track color
+  if (!Number.isFinite(magnitude)) return paletteCache['OTHER'];
+  if (magnitude >= 5) return paletteCache['EF5'];
+  if (magnitude >= 4) return paletteCache['EF4'];
+  if (magnitude >= 3) return paletteCache['EF3'];
+  if (magnitude >= 2) return paletteCache['EF2'];
+  if (magnitude >= 1) return paletteCache['EF1'];
+  
+  return paletteCache['EF0'];
 }
 
 function coordinatesToLatLngs(coordinates) {
@@ -2315,20 +2385,6 @@ function refreshYearBounds(initLatest = false) {
   state.yearMin = Number(yearMinInput?.value || dataMax);
   state.yearMax = Number(yearMaxInput?.value || dataMax);
   updateFilterReadouts();
-}
-
-function magnitudeColor(value) {
-  const magnitude = Number(value);
-  if (!Number.isFinite(magnitude)) {
-    return '#94a3b8';
-  }
-
-  if (magnitude >= 5) return '#7f1d1d';
-  if (magnitude >= 4) return '#b91c1c';
-  if (magnitude >= 3) return '#f59e0b';
-  if (magnitude >= 2) return '#facc15';
-  if (magnitude >= 1) return '#4ade80';
-  return '#22d3ee';
 }
 
 function buildPopup(row) {

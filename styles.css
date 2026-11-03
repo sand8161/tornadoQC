@@ -13,6 +13,16 @@
   --map-height: calc(100vh - 32px);
   --editor-bg: rgba(15, 23, 42, 0.8);
   --input-bg: rgba(15, 23, 42, 0.65);
+  --ef5: #e138ff;
+  --ef4: #dc2626;
+  --ef3: #f5800b;
+  --ef2: #fadf15;
+  --ef1: #56de4a;
+  --ef0: #3be5ff;
+  --efu: #838383;
+  --wind: #4c95c3;
+  --tropical: #fdff85;
+  --other: #a8a29e;
 }
 
 body.theme-light {
@@ -592,7 +602,7 @@ button:hover {
   right: 16px;
   z-index: 600;
   width: min(360px, calc(100% - 32px));
-  max-height: min(70vh, 560px);
+  min-height: fit-content;
   background: var(--editor-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -619,9 +629,10 @@ button:hover {
 
 #segmentForm,
 .selection-empty {
-  padding: 14px;
+  padding: 10px 12px 12px;
   color: var(--muted);
   line-height: 1.5;
+  font-size: 0.8rem;
 }
 
 .hidden {
@@ -974,13 +985,7 @@ textarea {
   letter-spacing: 0.08em;
 }
 
-#segmentForm,
-.selection-empty {
-  padding: 10px 12px 12px;
-  color: var(--muted);
-  line-height: 1.5;
-  font-size: 0.8rem;
-}
+
 
 .field-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1282,21 +1287,6 @@ body.theme-light .county-name-label > span {
   gap: 6px;
 }
 
-.legend-swatch-tiny {
-  background: #8b5cf6;
-  border-radius: 50%;
-}
-
-.legend-swatch-green {
-  background: #10b981;
-  border-radius: 50%;
-}
-
-.legend-swatch-gray {
-  background: #8e8e8e;
-  border-radius: 50%;
-}
-
 .legend-svg-tornado {
   margin-right: -2px;
 }
@@ -1428,3 +1418,4 @@ body.theme-light .county-name-label > span {
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   pointer-events: none;
 }
+
