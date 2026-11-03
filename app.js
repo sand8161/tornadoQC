@@ -30,7 +30,6 @@ const state = {
   countyLayerVisible: true,
   radarStations: [],
   datRenderers: {},
-  countyLabelsLayer: null,
   countyLayer: null,
   radarLayer: null,
   radarType: 'reflectivity', // 'off', 'reflectivity', or 'velocity'
@@ -174,21 +173,18 @@ async function init() {
 
   state.map.createPane('countyPane');
   state.map.getPane('countyPane').style.zIndex = 350;
-  state.map.on('zoomend', () => {
-    if (state.countyLayer) renderCountyLabels();
-  });
 
   // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
   state.map.createPane('datPolygonsPane');
-  state.map.getPane('datPolygonsPane').style.zIndex = 390;
+  state.map.getPane('datPolygonsPane').style.zIndex = 405; // Elevated above Canvas (400)
   state.datRenderers.polygons = L.svg({ pane: 'datPolygonsPane' });
-  
+
   state.map.createPane('datLinesPane');
-  state.map.getPane('datLinesPane').style.zIndex = 400;
+  state.map.getPane('datLinesPane').style.zIndex = 406; // Elevated above polygons
   state.datRenderers.lines = L.svg({ pane: 'datLinesPane' });
-  
+
   state.map.createPane('datPointsPane');
-  state.map.getPane('datPointsPane').style.zIndex = 410;
+  state.map.getPane('datPointsPane').style.zIndex = 407; // Elevated above lines
   state.datRenderers.points = L.svg({ pane: 'datPointsPane' });
 
   state.layerGroup = L.layerGroup().addTo(state.map);
@@ -303,16 +299,6 @@ function bindControls() {
           }
         } else if (state.map.hasLayer(state.countyLayer)) {
           state.map.removeLayer(state.countyLayer);
-        }
-      }
-
-      if (state.countyLabelsLayer) {
-        if (state.countyLayerVisible) {
-          if (!state.map.hasLayer(state.countyLabelsLayer)) {
-            state.countyLabelsLayer.addTo(state.map);
-          }
-        } else if (state.map.hasLayer(state.countyLabelsLayer)) {
-          state.map.removeLayer(state.countyLabelsLayer);
         }
       }
     });
@@ -1236,28 +1222,176 @@ function clearRadarLayer(clearCache = false) {
   if (radarOffsetLabel) radarOffsetLabel.textContent = '--:-- UTC';
 }
 
+async function loadDatAttachments(layerId, objectId, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || container.dataset.loaded) return;
+
+  if (layerId === undefined || objectId === undefined) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = '<div style="text-align:center; padding: 10px; font-size:0.75rem; color:var(--muted); border-top:1px solid var(--border); margin-top: 10px; grid-column: 1 / -1;">Checking for photos...</div>';
+  container.dataset.loaded = 'true';
+
+  try {
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments?f=json`;
+    const resp = await fetch(url, { cache: 'no-store' });
+    const data = await resp.json();
+    
+    if (data && data.attachmentInfos && data.attachmentInfos.length > 0) {
+      // Grab the first valid image attachment
+      const photo = data.attachmentInfos.find(a => a.contentType.startsWith('image/'));
+      if (photo) {
+        const imgUrl = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments/${photo.id}`;
+        container.innerHTML = `
+          <div style="margin-top: 12px; text-align: center; border-top: 1px solid var(--border); padding-top: 10px; grid-column: 1 / -1;">
+            <a href="${imgUrl}" target="_blank">
+              <img src="${imgUrl}" alt="DAT Damage Photo" style="max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; background: rgba(0,0,0,0.2);" />
+            </a>
+            <div style="font-size: 0.7rem; color: var(--muted); margin-top: 4px;">Click image to expand</div>
+          </div>
+        `;
+        return;
+      }
+    }
+    container.innerHTML = ''; // Hide if no photos exist
+  } catch (err) {
+    console.warn('Failed to fetch DAT attachments', err);
+    container.innerHTML = '';
+  }
+}
+
+function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', geomType = 'Unknown Geometry') {
+  const values = attrs || {};
+  const rows = [];
+
+  const addRow = (label, ...candidates) => {
+    const value = firstNonEmpty(...candidates);
+    if (value === null || value === undefined) return;
+
+    const text = typeof value === 'string' ? value.trim() : String(value);
+    if (!text || text === 'null' || text === 'NaN') return;
+
+    rows.push([label, text]);
+  };
+
+  // Combine date and time for the "Storm Date" field
+  const rawDate = firstNonEmpty(values.stormdate, values.EVENT_DATE, values.event_date, values.date);
+  let stormDateFormatted = 'N/A';
+
+  if (rawDate) {
+    const numDate = Number(rawDate);
+    // Handle ArcGIS epoch timestamps (milliseconds)
+    if (!isNaN(numDate) && numDate > 10000000000) {
+      const dt = new Date(numDate);
+      if (!isNaN(dt.getTime())) {
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        const yyyy = dt.getUTCFullYear();
+        const hh = String(dt.getUTCHours()).padStart(2, '0');
+        const min = String(dt.getUTCMinutes()).padStart(2, '0');
+        stormDateFormatted = `${mm}/${dd}/${yyyy} ${hh}:${min} UTC`;
+      }
+    } else {
+      // Handle standard string formats
+      const rawTime = firstNonEmpty(values.stormtime, values.EVENT_TIME, values.event_time, values.time);
+      stormDateFormatted = rawTime ? `${rawDate} ${rawTime} UTC` : String(rawDate);
+    }
+  }
+
+  // Map DAT attributes to the exact requested labels
+  addRow('Event ID', values.event_id, values.EVENT_ID, values.eventId, values.EVENTID, values.objectid, values.OBJECTID, fallbackLabel);
+  addRow('Storm Date', stormDateFormatted);
+  addRow('EF Rating', efValue);
+  addRow('Winds (MPH)', values.wind_speed, values.WIND_SPEED, values.wind, values.WIND);
+  addRow('Damage Indicator', values.di, values.DI, values.damage_txt, values.DAMAGE_TXT, values.damage_indicator, values.DAMAGE_INDICATOR);
+  addRow('Degree of Damage', values.dod, values.DOD, values.degree_of_damage);
+  addRow('Damage Direction', values.direction, values.DIRECTION, values.damage_direction, values.damage_dir);
+  addRow('Injuries', values.injuries, values.INJURIES, values.injury_count, values.num_injuries);
+  addRow('Fatalities', values.fatalities, values.FATALITIES, values.deaths, values.DEATHS, values.num_fatalities);
+  addRow('Comments', values.comments, values.COMMENTS, values.notes, values.NOTES);
+
+  if (geomType === 'LineString' || geomType === 'MultiLineString') {
+    geomType = 'Path';
+  } else if (geomType === 'MultiPolygon' || geomType === 'Polygon') {
+    geomType = 'Polygon';
+  } else if (geomType === 'Point' || geomType === 'MultiPoint') {
+    geomType = 'Point';
+  }
+
+  // Deduplicate rows to prevent redundant UI data
+  const uniqueRows = [];
+  const seen = new Set();
+  for (const [label, text] of rows) {
+    const key = `${label}::${text}`.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueRows.push([label, text]);
+    }
+  }
+
+  const popupCells = uniqueRows.map(([label, text]) => {
+    // If a standard field contains a raw URL, make it a clickable link
+    if (typeof text === 'string' && text.startsWith('http')) {
+      return `<span>${escapeHtml(label)}</span><strong><a href="${escapeHtml(text)}" target="_blank" style="color: var(--accent);">View Link</a></strong>`;
+    }
+    return `<span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong>`;
+  }).join('');
+
+  const layerId = values._layerId;
+  const objectId = values._objectId;
+  const containerId = `dat-img-${layerId}-${objectId}`;
+  
+  const imageHtml = (layerId !== undefined && objectId !== undefined)
+    ? `<div id="${containerId}" style="grid-column: 1 / -1;"></div>`
+    : '';
+
+  // Added max-height and overflow-y to make the content block scrollable
+  return `
+    <div class="popup-title">NOAA DAT ${escapeHtml(geomType)}</div>
+    <div class="popup-grid" style="max-height: 280px; overflow-y: auto; padding-right: 6px; overflow-x: hidden;">
+      ${popupCells || '<span>Event</span><strong>DAT</strong>'}
+      ${imageHtml}
+    </div>
+  `;
+}
+
+function getEfRank(value) {
+  const text = String(value || '').trim().toUpperCase();
+  if (text === 'EF5' || text === 'F5') return 5;
+  if (text === 'EF4' || text === 'F4') return 4;
+  if (text.startsWith('EF3') || text.startsWith('F3')) return 3; // Catch EF3+
+  if (text === 'EF2' || text === 'F2') return 2;
+  if (text === 'EF1' || text === 'F1') return 1;
+  if (text === 'EF0' || text === 'F0') return 0;
+  return -1; // Unrated, wind, or other types go to the very bottom
+}
+
 function renderDatLayer(features) {
   clearDatLayer(false);
   if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
 
   updateDatLayerSectionVisibility();
 
-  const layers = features
+  // Sort features so higher EF ratings render last (placing them visually on top)
+  const sortedFeatures = [...features].sort((a, b) => {
+    const getEf = (feat) => {
+      const attrs = feat.properties || feat.attributes || {};
+      return firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
+    };
+    return getEfRank(getEf(a)) - getEfRank(getEf(b));
+  });
+
+  const layers = sortedFeatures
     .map((feature) => {
       if (!feature || !feature.geometry) return null;
-
+      
       const geometry = feature.geometry;
       const attrs = feature.properties || feature.attributes || {};
       const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
       const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
-      const popupHtml = `
-        <div class="popup-title">NOAA DAT</div>
-        <div class="popup-grid">
-          <span>Event</span><strong>${label}</strong>
-          <span>EF/Type</span><strong>${efValue}</strong>
-          <span>Damage</span><strong>${firstNonEmpty(attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A')}</strong>
-        </div>
-      `;
+      const popupHtml = buildDatPopupHtml(attrs, label, efValue, geometry.type);
 
       if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
         if (!state.datPointsVisible) return null;
@@ -1272,6 +1406,7 @@ function renderDatLayer(features) {
             radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: state.datOpacity,
           });
           marker.bindPopup(popupHtml);
+          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
           return marker;
         } else {
           const svgIcon = L.divIcon({
@@ -1282,6 +1417,7 @@ function renderDatLayer(features) {
           });
           const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon, opacity: state.datOpacity });
           marker.bindPopup(popupHtml);
+          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
           return marker;
         }
       }
@@ -1295,21 +1431,29 @@ function renderDatLayer(features) {
           color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
         });
         line.bindPopup(popupHtml);
+        line.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
         return line;
       }
 
       if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
         if (!state.datPolygonsVisible) return null;
-        const latLngs = geometry.coordinates ? polygonCoordinatesToLatLngs(geometry.coordinates) : [];
-        const polygon = L.polygon(latLngs, {
-          pane: 'datPolygonsPane',
-          renderer: state.datRenderers.polygons,
-          color: datColorByEf(efValue), fillColor: datColorByEf(efValue), fillOpacity: state.datOpacity * 0.35, weight: 2, opacity: state.datOpacity,
+        
+        const polygonLayer = L.geoJSON(feature, {
+          style: {
+            pane: 'datPolygonsPane',
+            renderer: state.datRenderers.polygons,
+            color: datColorByEf(efValue), 
+            fillColor: datColorByEf(efValue), 
+            fillOpacity: state.datOpacity * 0.35, 
+            weight: 2, 
+            opacity: state.datOpacity,
+          }
         });
-        polygon.bindPopup(popupHtml);
-        return polygon;
+        
+        polygonLayer.bindPopup(popupHtml);
+        polygonLayer.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+        return polygonLayer;
       }
-
       return null;
     })
     .filter(Boolean);
@@ -1343,14 +1487,6 @@ function coordinatesToLatLngs(coordinates) {
   return coordinates
     .map((segment) => Array.isArray(segment) && segment.length >= 2 ? [segment[1], segment[0]] : null)
     .filter(Boolean);
-}
-
-function polygonCoordinatesToLatLngs(coordinates) {
-  if (!Array.isArray(coordinates)) return [];
-  return coordinates.map((ring) => {
-    if (!Array.isArray(ring)) return [];
-    return ring.map((point) => Array.isArray(point) && point.length >= 2 ? [point[1], point[0]] : null).filter(Boolean);
-  }).filter((ring) => ring.length);
 }
 
 const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
@@ -2061,12 +2197,16 @@ async function fetchNoaaDatForTrack(record) {
         }
 
         const attrs = feature.properties || feature.attributes;
+        // Inject IDs for dynamic photo loading later
+        attrs._layerId = layerId;
+        attrs._objectId = attrs.objectid || attrs.OBJECTID;
+
         const valueSet = [
           attrs.stormdate,
           attrs.event_date,
           attrs.damage_date,
           attrs.damage_dt,
-                   attrs.date,
+          attrs.date,
           attrs.begin_date,
           attrs.end_date,
           attrs.issue_date,
@@ -2393,12 +2533,12 @@ async function loadCountyBoundaries() {
       }
     });
     state.countyLayer.addTo(state.map);
-    renderCountyLabels();
   } catch (err) {
     try {
       const geojsonDir = await shp(resolveAssetUrl(basePath));
       state.countyLayer = L.geoJSON(geojsonDir, {
         pane: 'countyPane',
+        renderer: L.svg({ pane: 'countyPane' }),
         style: {
           color: '#64748b',
           weight: 1,
@@ -2409,186 +2549,10 @@ async function loadCountyBoundaries() {
         }
       });
       state.countyLayer.addTo(state.map);
-      renderCountyLabels();
     } catch (dirErr) {
       console.warn('Failed to load county shapefile:', err, dirErr);
     }
   }
-}
-
-function pointInPolygon(latlng, ring) {
-  const x = latlng.lng;
-  const y = latlng.lat;
-  let inside = false;
-
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i][0];
-    const yi = ring[i][1];
-    const xj = ring[j][0];
-    const yj = ring[j][1];
-
-    const intersects = ((yi > y) !== (yj > y)) &&
-      (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi);
-
-    if (intersects) inside = !inside;
-  }
-
-  return inside;
-}
-
-function pointInCountyGeometry(latlng, geometry) {
-  if (!geometry) return false;
-
-  if (geometry.type === 'Polygon') {
-    return geometry.coordinates.some((ring) => pointInPolygon(latlng, ring));
-  }
-
-  if (geometry.type === 'MultiPolygon') {
-    return geometry.coordinates.some((polygon) =>
-      polygon.some((ring) => pointInPolygon(latlng, ring))
-    );
-  }
-
-  return false;
-}
-
-function findLabelCenterInsideCounty(map, geometry, preferredCenter, textWidthPx, textHeightPx) {
-  const preferredPoint = map.latLngToContainerPoint(preferredCenter);
-  const searchRadius = Math.max(18, Math.min(90, Math.max(textWidthPx, textHeightPx) * 0.75));
-  const candidates = [];
-
-  for (let y = -searchRadius; y <= searchRadius; y += Math.max(8, searchRadius / 4)) {
-    for (let x = -searchRadius; x <= searchRadius; x += Math.max(8, searchRadius / 4)) {
-      const testPoint = map.containerPointToLatLng({
-        x: preferredPoint.x + x,
-        y: preferredPoint.y + y,
-      });
-
-      if (!pointInCountyGeometry(testPoint, geometry)) continue;
-
-      const halfW = textWidthPx / 2;
-      const halfH = textHeightPx / 2;
-      const samplePoints = [
-        { x: x - halfW, y: y - halfH },
-        { x: x + halfW, y: y - halfH },
-        { x: x - halfW, y: y + halfH },
-        { x: x + halfW, y: y + halfH },
-        { x: x, y: y - halfH },
-        { x: x, y: y + halfH },
-        { x: x - halfW, y: y },
-        { x: x + halfW, y: y },
-        { x: x, y: y },
-      ];
-
-      const fits = samplePoints.every((offset) => {
-        const sampleLatLng = map.containerPointToLatLng({
-          x: preferredPoint.x + offset.x,
-          y: preferredPoint.y + offset.y,
-        });
-        return pointInCountyGeometry(sampleLatLng, geometry);
-      });
-
-      if (fits) {
-        candidates.push({
-          point: testPoint,
-          distance: Math.hypot(x, y),
-        });
-      }
-    }
-  }
-
-  if (!candidates.length) return null;
-
-  candidates.sort((a, b) => a.distance - b.distance);
-  return candidates[0].point;
-}
-
-function renderCountyLabels() {
-  if (!state.map || !window.L) return;
-  if (state.map.getZoom() < 6) {
-    if (state.countyLabelsLayer) {
-      state.map.removeLayer(state.countyLabelsLayer);
-      state.countyLabelsLayer = null;
-    }
-    return;
-  }
-
-  if (state.countyLabelsLayer) {
-    state.map.removeLayer(state.countyLabelsLayer);
-    state.countyLabelsLayer = null;
-  }
-
-  const labels = [];
-  const countyLayer = state.countyLayer;
-  if (!countyLayer || !countyLayer.getLayers) return;
-
-  const map = state.map;
-  countyLayer.getLayers().forEach((featureLayer) => {
-    const feature = featureLayer.feature;
-    if (!feature || !feature.properties || !feature.geometry) return;
-
-    const props = feature.properties;
-    const name = firstNonEmpty(
-      props.NAME,
-      props.name,
-      props.NAMELSAD,
-      props.namelsad,
-      props.County,
-      props.county,
-      props.NAME_1,
-      props.name_1,
-      props.CountyName,
-      props.county_name
-    );
-    if (!name) return;
-
-    const bounds = featureLayer.getBounds ? featureLayer.getBounds() : null;
-    if (!bounds) return;
-
-    const sw = map.latLngToContainerPoint(bounds.getSouthWest());
-    const ne = map.latLngToContainerPoint(bounds.getNorthEast());
-    const countyWidthPx = Math.max(30, Math.abs(ne.x - sw.x));
-    const countyHeightPx = Math.max(20, Math.abs(ne.y - sw.y));
-    const estimatedTextWidthPx = String(name).length * 6.4;
-    const estimatedTextHeightPx = 14;
-
-    if (countyWidthPx < 52 || countyHeightPx < 18) return;
-    if (estimatedTextWidthPx > countyWidthPx * 0.8 || estimatedTextHeightPx > countyHeightPx * 0.75) return;
-
-    const fontSize = Math.min(8, Math.max(6, (countyWidthPx / Math.max(estimatedTextWidthPx, 1)) * 8));
-    const center = bounds.getCenter();
-    const labelCenter = findLabelCenterInsideCounty(
-      map,
-      feature.geometry,
-      center,
-      estimatedTextWidthPx,
-      estimatedTextHeightPx
-    );
-    if (!labelCenter) return;
-
-    const labelHtml = `
-      <span style="display:inline-flex; align-items:center; justify-content:center; font-size:${fontSize}px; line-height:1; font-weight:700; letter-spacing:0.02em; white-space:nowrap; text-align:center; color:rgba(226,232,240,0.93); text-shadow:0 1px 2px rgba(15,23,42,0.7);">${String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>
-    `;
-
-    const label = L.marker([labelCenter.lat, labelCenter.lng], {
-      pane: 'countyPane',
-      opacity: 1,
-      interactive: false,
-      keyboard: false,
-      icon: L.divIcon({
-        className: 'county-name-label',
-        html: labelHtml,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      })
-    });
-
-    labels.push(label);
-  });
-
-  if (!labels.length) return;
-
-  state.countyLabelsLayer = L.layerGroup(labels).addTo(state.map);
 }
 
 function getSpcRadarTimeInfo(record) {
@@ -2656,4 +2620,264 @@ function renderEditor() {
   document.getElementById('pathWidth').value = record.widthYards ?? '';
   document.getElementById('qcNotes').value = record.qcNotes || '';
 
+}
+
+async function loadDatAttachments(layerId, objectId, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || container.dataset.loaded) return;
+
+  if (layerId === undefined || objectId === undefined) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = '<div style="text-align:center; padding: 10px; font-size:0.75rem; color:var(--muted); border-top:1px solid var(--border); margin-top: 10px; grid-column: 1 / -1;">Checking for photos...</div>';
+  container.dataset.loaded = 'true';
+
+  try {
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments?f=json`;
+    const resp = await fetch(url, { cache: 'no-store' });
+    const data = await resp.json();
+    
+    if (data && data.attachmentInfos && data.attachmentInfos.length > 0) {
+      // Grab the first valid image attachment
+      const photo = data.attachmentInfos.find(a => a.contentType.startsWith('image/'));
+      if (photo) {
+        const imgUrl = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments/${photo.id}`;
+        container.innerHTML = `
+          <div style="margin-top: 12px; text-align: center; border-top: 1px solid var(--border); padding-top: 10px; grid-column: 1 / -1;">
+            <a href="${imgUrl}" target="_blank">
+              <img src="${imgUrl}" alt="DAT Damage Photo" style="max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; background: rgba(0,0,0,0.2);" />
+            </a>
+            <div style="font-size: 0.7rem; color: var(--muted); margin-top: 4px;">Click image to expand</div>
+          </div>
+        `;
+        return;
+      }
+    }
+    container.innerHTML = ''; // Hide if no photos exist
+  } catch (err) {
+    console.warn('Failed to fetch DAT attachments', err);
+    container.innerHTML = '';
+  }
+}
+
+function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', geomType = 'Unknown Geometry') {
+  const values = attrs || {};
+  const rows = [];
+
+  const addRow = (label, ...candidates) => {
+    const value = firstNonEmpty(...candidates);
+    if (value === null || value === undefined) return;
+
+    const text = typeof value === 'string' ? value.trim() : String(value);
+    if (!text || text === 'null' || text === 'NaN') return;
+
+    rows.push([label, text]);
+  };
+
+  // Combine date and time for the "Storm Date" field
+  const rawDate = firstNonEmpty(values.stormdate, values.EVENT_DATE, values.event_date, values.date);
+  let stormDateFormatted = 'N/A';
+
+  if (rawDate) {
+    const numDate = Number(rawDate);
+    // Handle ArcGIS epoch timestamps (milliseconds)
+    if (!isNaN(numDate) && numDate > 10000000000) {
+      const dt = new Date(numDate);
+      if (!isNaN(dt.getTime())) {
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        const yyyy = dt.getUTCFullYear();
+        const hh = String(dt.getUTCHours()).padStart(2, '0');
+        const min = String(dt.getUTCMinutes()).padStart(2, '0');
+        stormDateFormatted = `${mm}/${dd}/${yyyy} ${hh}:${min} UTC`;
+      }
+    } else {
+      // Handle standard string formats
+      const rawTime = firstNonEmpty(values.stormtime, values.EVENT_TIME, values.event_time, values.time);
+      stormDateFormatted = rawTime ? `${rawDate} ${rawTime} UTC` : String(rawDate);
+    }
+  }
+
+  // Map DAT attributes to the exact requested labels
+  addRow('Event ID', values.event_id, values.EVENT_ID, values.eventId, values.EVENTID, values.objectid, values.OBJECTID, fallbackLabel);
+  addRow('Storm Date', stormDateFormatted);
+  addRow('EF Rating', efValue);
+  addRow('Winds (MPH)', values.wind_speed, values.WIND_SPEED, values.wind, values.WIND);
+  addRow('Damage Indicator', values.di, values.DI, values.damage_txt, values.DAMAGE_TXT, values.damage_indicator, values.DAMAGE_INDICATOR);
+  addRow('Degree of Damage', values.dod, values.DOD, values.degree_of_damage);
+  addRow('Damage Direction', values.direction, values.DIRECTION, values.damage_direction, values.damage_dir);
+  addRow('Injuries', values.injuries, values.INJURIES, values.injury_count, values.num_injuries);
+  addRow('Fatalities', values.fatalities, values.FATALITIES, values.deaths, values.DEATHS, values.num_fatalities);
+  addRow('Comments', values.comments, values.COMMENTS, values.notes, values.NOTES);
+
+  if (geomType === 'LineString' || geomType === 'MultiLineString') {
+    geomType = 'Path';
+  } else if (geomType === 'MultiPolygon' || geomType === 'Polygon') {
+    geomType = 'Polygon';
+  } else if (geomType === 'Point' || geomType === 'MultiPoint') {
+    geomType = 'Point';
+  }
+
+  // Deduplicate rows to prevent redundant UI data
+  const uniqueRows = [];
+  const seen = new Set();
+  for (const [label, text] of rows) {
+    const key = `${label}::${text}`.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueRows.push([label, text]);
+    }
+  }
+
+  const popupCells = uniqueRows.map(([label, text]) => {
+    // If a standard field contains a raw URL, make it a clickable link
+    if (typeof text === 'string' && text.startsWith('http')) {
+      return `<span>${escapeHtml(label)}</span><strong><a href="${escapeHtml(text)}" target="_blank" style="color: var(--accent);">View Link</a></strong>`;
+    }
+    return `<span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong>`;
+  }).join('');
+
+  const layerId = values._layerId;
+  const objectId = values._objectId;
+  const containerId = `dat-img-${layerId}-${objectId}`;
+  
+  const imageHtml = (layerId !== undefined && objectId !== undefined)
+    ? `<div id="${containerId}" style="grid-column: 1 / -1;"></div>`
+    : '';
+
+  // Added max-height and overflow-y to make the content block scrollable
+  return `
+    <div class="popup-title">NOAA DAT ${escapeHtml(geomType)}</div>
+    <div class="popup-grid" style="max-height: 280px; overflow-y: auto; padding-right: 6px; overflow-x: hidden;">
+      ${popupCells || '<span>Event</span><strong>DAT</strong>'}
+      ${imageHtml}
+    </div>
+  `;
+}
+
+function getEfRank(value) {
+  const text = String(value || '').trim().toUpperCase();
+  if (text === 'EF5' || text === 'F5') return 5;
+  if (text === 'EF4' || text === 'F4') return 4;
+  if (text.startsWith('EF3') || text.startsWith('F3')) return 3; // Catch EF3+
+  if (text === 'EF2' || text === 'F2') return 2;
+  if (text === 'EF1' || text === 'F1') return 1;
+  if (text === 'EF0' || text === 'F0') return 0;
+  return -1; // Unrated, wind, or other types go to the very bottom
+}
+
+function renderDatLayer(features) {
+  clearDatLayer(false);
+  if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
+
+  updateDatLayerSectionVisibility();
+
+  // Sort features so higher EF ratings render last (placing them visually on top)
+  const sortedFeatures = [...features].sort((a, b) => {
+    const getEf = (feat) => {
+      const attrs = feat.properties || feat.attributes || {};
+      return firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
+    };
+    return getEfRank(getEf(a)) - getEfRank(getEf(b));
+  });
+
+  const layers = sortedFeatures
+    .map((feature) => {
+      if (!feature || !feature.geometry) return null;
+      
+      const geometry = feature.geometry;
+      const attrs = feature.properties || feature.attributes || {};
+      const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
+      const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
+      const popupHtml = buildDatPopupHtml(attrs, label, efValue, geometry.type);
+
+      if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+        if (!state.datPointsVisible) return null;
+        const [lon, lat] = geometry.coordinates;
+        const color = datColorByEf(efValue);
+        const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
+
+        if (isNonTornado) {
+          const marker = L.circleMarker([lat, lon], {
+            pane: 'datPointsPane',
+            renderer: state.datRenderers.points,
+            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: state.datOpacity,
+          });
+          marker.bindPopup(popupHtml);
+          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+          return marker;
+        } else {
+          const svgIcon = L.divIcon({
+            className: 'dat-point-icon',
+            html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          });
+          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon, opacity: state.datOpacity });
+          marker.bindPopup(popupHtml);
+          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+          return marker;
+        }
+      }
+
+      if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
+        if (!state.datPathsVisible) return null;
+        const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
+        const line = L.polyline(latLngs, {
+          pane: 'datLinesPane',
+          renderer: state.datRenderers.lines,
+          color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
+        });
+        line.bindPopup(popupHtml);
+        line.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+        return line;
+      }
+
+      if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+        if (!state.datPolygonsVisible) return null;
+        
+        const polygonLayer = L.geoJSON(feature, {
+          style: {
+            pane: 'datPolygonsPane',
+            renderer: state.datRenderers.polygons,
+            color: datColorByEf(efValue), 
+            fillColor: datColorByEf(efValue), 
+            fillOpacity: state.datOpacity * 0.35, 
+            weight: 2, 
+            opacity: state.datOpacity,
+          }
+        });
+        
+        polygonLayer.bindPopup(popupHtml);
+        polygonLayer.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+        return polygonLayer;
+      }
+      return null;
+    })
+    .filter(Boolean);
+
+  layers.forEach((layer) => layer.addTo(state.datLayerGroup));
+}
+
+function datColorByEf(value) {
+  const text = String(value || '').trim().toUpperCase();
+  
+  // Custom non-tornado colors distinct from EF palette
+  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6'; // Vivid Purple
+  if (text.includes('TROPICAL')) return '#10b981'; // Emerald Green
+  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e'; // Warm Grey
+
+  const palette = {
+    'EF5': '#9d174d',
+    'EF4': '#dc2626',
+    'EF3': '#f59e0b',
+    'EF3+': '#f59e0b',
+    'EF2': '#facc15',
+    'EF1': '#4ade80',
+    'EF0': '#22d3ee',
+    'EFU': '#64748b',
+  };
+  return palette[text] || '#a8a29e';
 }
