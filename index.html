@@ -71,7 +71,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">NCEI Reports</span>
-                <button id="nceiLayerToggle" type="button" class="layer-eye active" aria-label="Hide NCEI layer" title="Hide NCEI layer">On</button>
+                <button id="nceiLayerToggle" type="button" class="layer-toggle active" aria-label="Hide NCEI layer" title="Hide NCEI layer">On</button>
               </div>
               <label class="opacity-row">
                 <span>Opacity</span>
@@ -82,7 +82,7 @@
             <div class="layer-section">
               <div class="layer-header">
                 <span class="layer-title">SPC Reports</span>
-                <button id="spcToggle" type="button" class="layer-eye active" aria-label="Hide SPC layer" title="Hide SPC layer">On</button>
+                <button id="spcToggle" type="button" class="layer-toggle active" aria-label="Hide SPC layer" title="Hide SPC layer">On</button>
               </div>
               <div class="layer-controls">
                 <button id="spcMultiCountyBtn" type="button" class="secondary layer-button-small">All counties</button>
@@ -93,17 +93,10 @@
               </div>
             </div>
 
-            <div class="layer-section">
-              <div class="layer-header">
-                <span class="layer-title">County Boundaries</span>
-                <button id="countyLayerToggle" type="button" class="layer-eye active" aria-label="Hide county boundaries" title="Hide county boundaries">On</button>
-              </div>
-            </div>
-
             <div id="datLayerSection" class="layer-section hidden">
               <div class="layer-header">
                 <span class="layer-title">NOAA DAT</span>
-                <button id="datLayerToggle" type="button" class="layer-eye active" aria-label="Hide DAT layer" title="Hide DAT layer">On</button>
+                <button id="datLayerToggle" type="button" class="layer-toggle active" aria-label="Hide DAT layer" title="Hide DAT layer">On</button>
               </div>
               <div class="layer-controls">
                 <div class="dat-button-grid">
@@ -121,7 +114,7 @@
             <div id="radarControls" class="hidden radar-controls-panel">
               <div class="layer-header">
                 <span class="layer-title">Radar (IEM)</span>
-                <button id="radarOffBtn" type="button" class="layer-eye active" aria-label="Turn radar off" title="Turn radar off">On</button>
+                <button id="radarOffBtn" type="button" class="layer-toggle active" aria-label="Turn radar off" title="Turn radar off">On</button>
               </div>
               <div class="radar-control-grid">
                 <button id="radarReflectivityBtn" type="button" class="secondary active layer-button-small">Reflectivity</button>
@@ -145,6 +138,14 @@
                 </label>
               </div>
             </div>
+
+            <div class="layer-section">
+              <div class="layer-header">
+                <span class="layer-title">County Boundaries</span>
+                <button id="countyLayerToggle" type="button" class="layer-toggle active" aria-label="Hide county boundaries" title="Hide county boundaries">On</button>
+              </div>
+            </div>
+
           </div>
         </details>
 
@@ -157,18 +158,19 @@
         <div class="legends-container">
           <div class="legend">
             <h2>Track Mag</h2>
-            <div class="legend-row"><span class="legend-swatch swatch-0"></span> F0 / EF0</div>
-            <div class="legend-row"><span class="legend-swatch swatch-1"></span> F1 / EF1</div>
-            <div class="legend-row"><span class="legend-swatch swatch-2"></span> F2 / EF2</div>
-            <div class="legend-row"><span class="legend-swatch swatch-3"></span> F3 / EF3</div>
-            <div class="legend-row"><span class="legend-swatch swatch-4"></span> F4 / EF4</div>
-            <div class="legend-row"><span class="legend-swatch swatch-5"></span> F5 / EF5</div>
+            <div class="legend-row"><span class="legend-swatch legend-swatch-gray"></span> EFU</div>
+            <div class="legend-row"><span class="legend-swatch swatch-0"></span> (E)F0</div>
+            <div class="legend-row"><span class="legend-swatch swatch-1"></span> (E)F1</div>
+            <div class="legend-row"><span class="legend-swatch swatch-2"></span> (E)F2</div>
+            <div class="legend-row"><span class="legend-swatch swatch-3"></span> (E)F3</div>
+            <div class="legend-row"><span class="legend-swatch swatch-4"></span> (E)F4</div>
+            <div class="legend-row"><span class="legend-swatch swatch-5"></span> (E)F5</div>
           </div>
           
           <div class="legend">
             <h2>DAT Type</h2>
             <div class="legend-row">
-              <svg class="legend-svg-tornado" width="12" height="12" viewBox="0 0 14 14"><polygon points="0,0 14,0 7,14" fill="#a8a29e" stroke="#fff" stroke-width="1"/></svg> 
+              <svg class="legend-svg-tornado" width="8" height="8" viewBox="0 0 14 14"><polygon points="0,0 14,0 7,14" fill="rgba(239, 68, 68, 0.9)" stroke="#fff" stroke-width="0.7"/></svg> 
               Tornado
             </div>
             <div class="legend-row">

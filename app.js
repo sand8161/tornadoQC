@@ -2499,10 +2499,27 @@ function normalizeRow(row, source) {
 
   let magnitude = 0;
   for (const candidate of magnitudeCandidates) {
+    const rawVal = String(candidate || '').trim().toUpperCase();
+    if (rawVal === 'EFU') {
+      magnitude = 'EFU';
+      break;
+    }
     const parsed = readFloat(candidate, null);
     if (parsed !== null) {
       magnitude = parsed;
       break;
+    }
+  }
+
+  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
+    const upperText = row.magnitude.trim().toUpperCase();
+    if (upperText === 'EFU') {
+      magnitude = 'EFU';
+    } else {
+      const match = upperText.match(/(\d+)/);
+      if (match) {
+        magnitude = Number(match[1]);
+      }
     }
   }
 
