@@ -1515,8 +1515,8 @@ function bindControls() {
         e.preventDefault();
         try {
           await navigator.clipboard.writeText(input.value);
-          copyBtn.innerHTML = '✓';
-          setTimeout(() => copyBtn.innerHTML = '✨', 1000);
+          copyBtn.innerHTML = '✨';
+          setTimeout(() => copyBtn.innerHTML = '📑', 1000);
         } catch (err) {
           console.error('Failed to copy', err);
         }
