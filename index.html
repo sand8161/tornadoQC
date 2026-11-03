@@ -178,10 +178,7 @@
               <span class="legend-swatch legend-swatch-green"></span> Tropical
             </div>
             <div class="legend-row">
-              <span class="legend-swatch legend-swatch-path"></span> Path
-            </div>
-            <div class="legend-row">
-              <span class="legend-swatch legend-swatch-area"></span> Area
+              <span class="legend-swatch legend-swatch-gray"></span> Other
             </div>
           </div>
         </div>
@@ -189,6 +186,7 @@
 
       <main class="map-panel">
         <div id="map" aria-label="Tornado map"></div>
+        <div id="mapPathLength" class="map-path-length hidden"></div>
         <div id="mapRadarControls" class="map-radar-controls" aria-label="Radar time controls">
           <button id="mapRadarStepBackBtn" type="button" class="secondary radar-step-btn map-radar-step-btn" title="Previous Scan" onclick="document.getElementById('radarStepBackBtn')?.click();">&laquo;</button>
           <button id="mapRadarStepFwdBtn" type="button" class="secondary radar-step-btn map-radar-step-btn" title="Next Scan" onclick="document.getElementById('radarStepFwdBtn')?.click();">&raquo;</button>

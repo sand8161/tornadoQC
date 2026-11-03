@@ -1,5 +1,7 @@
 const SPC_URL = 'https://www.spc.noaa.gov/wcm/data/1950-2025_all_tornadoes.csv';
 const FALLBACK_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(SPC_URL);
+const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
+const MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
 
 const state = {
   rows: [],
@@ -8,6 +10,8 @@ const state = {
   map: null,
   layerGroup: null,
   datLayerGroup: null,
+  editLayerGroup: null,
+  editHandles: { start: null, end: null },
   polyLines: new Map(),
   allBounds: null,
   yearMin: 1950,
@@ -41,6 +45,72 @@ const state = {
 };
 
 document.addEventListener('DOMContentLoaded', init);
+let currentDatSearchId = 0;
+
+async function init() {
+  const mapElement = document.getElementById('map');
+  state.map = L.map(mapElement, {
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true,
+  }).setView([38.5, -98.35], 4);
+
+  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  });
+  tiles.addTo(state.map);
+
+  state.map.createPane('countyPane');
+  state.map.getPane('countyPane').style.zIndex = 350;
+
+  // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
+  state.map.createPane('datPolygonsPane');
+  state.map.getPane('datPolygonsPane').style.zIndex = 405; // Elevated above Canvas (400)
+  state.datRenderers.polygons = L.svg({ pane: 'datPolygonsPane' });
+
+  state.map.createPane('datLinesPane');
+  state.map.getPane('datLinesPane').style.zIndex = 406; // Elevated above polygons
+  state.datRenderers.lines = L.svg({ pane: 'datLinesPane' });
+
+  state.map.createPane('datPointsPane');
+  state.map.getPane('datPointsPane').style.zIndex = 407; // Elevated above lines
+  state.datRenderers.points = L.svg({ pane: 'datPointsPane' });
+
+  state.layerGroup = L.layerGroup().addTo(state.map);
+  state.datLayerGroup = L.layerGroup().addTo(state.map);
+  state.editLayerGroup = L.layerGroup().addTo(state.map);
+  
+  const updateMarkerScale = () => {
+    if (!state.map) return;
+    const zoom = state.map.getZoom();
+    // Scales from ~0.4 at zoom 4 (National) up to 1.0 at zoom 9+ (County)
+    const scale = Math.max(0.4, Math.min(1.0, zoom / 9));
+    document.documentElement.style.setProperty('--marker-scale', scale);
+  };
+  state.map.on('zoom', updateMarkerScale);
+  updateMarkerScale(); // initialize on load
+
+  bindControls();
+  updateSpcControls();
+  applyTheme('dark');
+  updateExportButtonLabel();
+  loadCountyBoundaries();
+
+  try {
+    const rsResponse = await fetch('https://api.weather.gov/radar/stations?stationType=WSR-88D');
+    const rsData = await rsResponse.json();
+    state.radarStations = rsData.features.map(f => ({
+      id: f.properties.id,
+      name: f.properties.name,
+      lat: f.geometry.coordinates[1],
+      lon: f.geometry.coordinates[0]
+    }));
+  } catch (err) {
+    console.warn('Unable to load NWS radar stations', err);
+  }
+  await loadData();
+}
 
 async function loadBundledReportParts() {
   const fileNames = [
@@ -157,58 +227,502 @@ async function loadData() {
   }
 }
 
-async function init() {
-  const mapElement = document.getElementById('map');
-  state.map = L.map(mapElement, {
-    zoomControl: true,
-    attributionControl: true,
-    preferCanvas: true,
-  }).setView([38.5, -98.35], 4);
-
-  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
-  });
-  tiles.addTo(state.map);
-
-  state.map.createPane('countyPane');
-  state.map.getPane('countyPane').style.zIndex = 350;
-
-  // Strictly enforce DAT layering order (Polygons bottom, Lines middle, Points top)
-  state.map.createPane('datPolygonsPane');
-  state.map.getPane('datPolygonsPane').style.zIndex = 405; // Elevated above Canvas (400)
-  state.datRenderers.polygons = L.svg({ pane: 'datPolygonsPane' });
-
-  state.map.createPane('datLinesPane');
-  state.map.getPane('datLinesPane').style.zIndex = 406; // Elevated above polygons
-  state.datRenderers.lines = L.svg({ pane: 'datLinesPane' });
-
-  state.map.createPane('datPointsPane');
-  state.map.getPane('datPointsPane').style.zIndex = 407; // Elevated above lines
-  state.datRenderers.points = L.svg({ pane: 'datPointsPane' });
-
-  state.layerGroup = L.layerGroup().addTo(state.map);
-  state.datLayerGroup = L.layerGroup().addTo(state.map);
-  
-  bindControls();
-  updateSpcControls();
-  applyTheme('dark');
-  updateExportButtonLabel();
-  loadCountyBoundaries();
+async function loadCountyBoundaries() {
+  const basePath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
 
   try {
-    const rsResponse = await fetch('https://api.weather.gov/radar/stations?stationType=WSR-88D');
-    const rsData = await rsResponse.json();
-    state.radarStations = rsData.features.map(f => ({
-      id: f.properties.id,
-      name: f.properties.name,
-      lat: f.geometry.coordinates[1],
-      lon: f.geometry.coordinates[0]
-    }));
+    if (window.location.protocol === 'file:') {
+      console.warn('County boundaries are not available from a file:// page. Use a local web server or GitHub Pages.');
+      return;
+    }
+
+    const shpUrl = resolveAssetUrl(`${basePath}.shp`);
+    const geojson = await shp(shpUrl);
+
+    state.countyLayer = L.geoJSON(geojson, {
+      pane: 'countyPane',
+      style: {
+        color: '#64748b',
+        weight: 1,
+        opacity: 0.55,
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        interactive: false
+      }
+    });
+    state.countyLayer.addTo(state.map);
   } catch (err) {
-    console.warn('Unable to load NWS radar stations', err);
+    try {
+      const geojsonDir = await shp(resolveAssetUrl(basePath));
+      state.countyLayer = L.geoJSON(geojsonDir, {
+        pane: 'countyPane',
+        renderer: L.svg({ pane: 'countyPane' }),
+        style: {
+          color: '#64748b',
+          weight: 1,
+          opacity: 0.55,
+          fillColor: 'transparent',
+          fillOpacity: 0,
+          interactive: false
+        }
+      });
+      state.countyLayer.addTo(state.map);
+    } catch (dirErr) {
+      console.warn('Failed to load county shapefile:', err, dirErr);
+    }
   }
-  await loadData();
+}
+
+async function handleTrackSelection(record, preserveMapView = true) {
+  if (!record) return;
+
+  if (record.source !== 'CSV') {
+    return;
+  }
+
+  state.selectedId = record.id;
+  renderEditor();
+  renderDetailsPanel(record);
+
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+    state.radarLayer = null;
+  }
+  state.radarScans = [];
+  state.radarScanIndex = 0;
+  state.radarRecordId = null;
+  
+  // Highlight the selected track without destroying the map layers
+  if (state.polyLines) {
+    state.polyLines.forEach((layer, id) => {
+      const isSelected = (id === state.selectedId);
+      if (layer.setStyle) {
+        layer.setStyle({
+          weight: isSelected ? 6 : 3,
+          opacity: isSelected ? 1 : 0.8
+        });
+      }
+    });
+  }
+
+  if (state.editLayerGroup) state.editLayerGroup.clearLayers();
+
+  const startIcon = L.divIcon({
+    className: 'edit-handle-icon',
+    html: `<div style="width:14px; height:14px; background:#4ade80; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+  const endIcon = L.divIcon({
+    className: 'edit-handle-icon',
+    html: `<div style="width:14px; height:14px; background:#ef4444; border:2px solid #fff; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.6); cursor: grab;"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+
+  const startHandle = L.marker([record.beginLatitude, record.beginLongitude], {
+    icon: startIcon, draggable: true, zIndexOffset: 1000
+  }).addTo(state.editLayerGroup);
+
+  const endHandle = L.marker([record.endLatitude, record.endLongitude], {
+    icon: endIcon, draggable: true, zIndexOffset: 1000
+  }).addTo(state.editLayerGroup);
+
+  // Add these two lines to store the handles in state so the panel can sync with them:
+  state.editHandles.start = startHandle;
+  state.editHandles.end = endHandle;
+  updateLivePathLength();
+
+  const updateTrackLine = () => {
+    const s = startHandle.getLatLng();
+    const e = endHandle.getLatLng();
+    const path = state.polyLines.get(record.id);
+    if (path) path.setLatLngs([s, e]);
+  };
+
+  startHandle.on('drag', (e) => {
+    const pos = e.target.getLatLng();
+    const latInput = document.getElementById('beginLat');
+    const lonInput = document.getElementById('beginLon');
+    if (latInput) latInput.value = pos.lat.toFixed(4);
+    if (lonInput) lonInput.value = pos.lng.toFixed(4);
+    updateTrackLine();
+    updateLivePathLength();
+  });
+
+  endHandle.on('drag', (e) => {
+    const pos = e.target.getLatLng();
+    const latInput = document.getElementById('endLat');
+    const lonInput = document.getElementById('endLon');
+    if (latInput) latInput.value = pos.lat.toFixed(4);
+    if (lonInput) lonInput.value = pos.lng.toFixed(4);
+    updateTrackLine();
+    updateLivePathLength();
+  });
+  // ----------------------------------
+
+  const statusEl = document.getElementById('radarStatus');
+  const offsetLabel = document.getElementById('radarOffsetLabel');
+  if (statusEl) statusEl.textContent = '';
+  if (offsetLabel) offsetLabel.textContent = '--:-- UTC';
+
+  // Only zoom if preserveMapView is explicitly passed as false
+  if (!preserveMapView && state.map) {
+    zoomToSelectedTrack();
+  }
+
+  const dateLabel = record.beginDate || record.endDate || 'this date';
+  const searchId = ++currentDatSearchId;
+
+  if (!document.getElementById('spinner-style')) {
+    const style = document.createElement('style');
+    style.id = 'spinner-style';
+    style.innerHTML = `@keyframes dat-spin { 100% { transform: rotate(360deg); } }`;
+    document.head.appendChild(style);
+  }
+
+  setStatus(`
+    <span style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation: dat-spin 0.75s linear infinite; vertical-align: text-bottom; margin-right: 6px;"></span>
+    Searching NOAA DAT for ${dateLabel}...
+  `);
+
+  const matches = await fetchNoaaDatForTrack(record);
+
+  // If another track was clicked while fetching, bail out cleanly
+  if (searchId !== currentDatSearchId) return;
+
+  state.noaaDatMatches = matches || [];
+  renderDatLayer(state.noaaDatMatches);
+  updateDatLayerSectionVisibility();
+
+  if (matches && matches.length) {
+    setStatus(`Selected ${record.reportId || record.id}. DAT found ${matches.length} feature(s).`, false);
+  } else {
+    setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
+  }
+  updateIemRadar();
+  // When a track is clicked, clear the cached scans and index
+  state.radarScans = [];
+  state.radarScanIndex = 0;
+  state.radarRecordId = null;
+
+  // Only show radar block for primary tracks
+  const radarControls = document.getElementById('radarControls');
+  if (radarControls) {
+    if (record.source === 'CSV' || record.source === 'SPC') {
+      radarControls.classList.remove('hidden');
+      updateIemRadar();
+    } else {
+      radarControls.classList.add('hidden');
+      if (state.radarLayer) {
+        state.map.removeLayer(state.radarLayer);
+        state.radarLayer = null;
+      }
+    }
+  }
+}
+
+async function loadDatAttachments(layerId, objectId, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || container.dataset.loaded) return;
+
+  if (layerId === undefined || objectId === undefined) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = '<div style="text-align:center; padding: 10px; font-size:0.75rem; color:var(--muted); border-top:1px solid var(--border); margin-top: 10px; grid-column: 1 / -1;">Checking for photos...</div>';
+  container.dataset.loaded = 'true';
+
+  try {
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments?f=json`;
+    const resp = await fetch(url, { cache: 'no-store' });
+    const data = await resp.json();
+    
+    if (data && data.attachmentInfos && data.attachmentInfos.length > 0) {
+      // Grab the first valid image attachment
+      const photo = data.attachmentInfos.find(a => a.contentType.startsWith('image/'));
+      if (photo) {
+        const imgUrl = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments/${photo.id}`;
+        container.innerHTML = `
+          <div style="margin-top: 12px; text-align: center; border-top: 1px solid var(--border); padding-top: 10px; grid-column: 1 / -1;">
+            <a href="${imgUrl}" target="_blank">
+              <img src="${imgUrl}" alt="DAT Damage Photo" style="max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; background: rgba(0,0,0,0.2);" />
+            </a>
+            <div style="font-size: 0.7rem; color: var(--muted); margin-top: 4px;">Click image to expand</div>
+          </div>
+        `;
+        return;
+      }
+    }
+    container.innerHTML = ''; // Hide if no photos exist
+  } catch (err) {
+    console.warn('Failed to fetch DAT attachments', err);
+    container.innerHTML = '';
+  }
+}
+
+async function fetchNoaaDatForTrack(record) {
+  if (!record) {
+    return [];
+  }
+
+  const candidateDates = new Set();
+  for (const candidate of [record.beginDate, record.endDate, record.date, record.event_date, record.stormdate, record.damage_date]) {
+    const normalized = normalizeDateString(candidate);
+    if (normalized) {
+      candidateDates.add(normalized);
+    }
+  }
+
+  if (!candidateDates.size) {
+    return [];
+  }
+
+  const layerIds = [0, 1, 2];
+  const unique = new Map();
+
+  const xMin = Math.min(record.beginLongitude, record.endLongitude) - 0.5;
+  const yMin = Math.min(record.beginLatitude, record.beginLatitude) - 0.5;
+  const xMax = Math.max(record.beginLongitude, record.endLongitude) + 0.5;
+  const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
+  const bbox = `${xMin},${yMin},${xMax},${yMax}`;
+
+  // Extract the target date (e.g. "2013-05-20")
+  const targetDate = normalizeDateString(firstNonEmpty(record.beginDate, record.endDate));
+  
+  // Build a strict date filter for the ArcGIS server
+  let whereClause = '1%3D1';
+  if (targetDate) {
+    const dt = new Date(targetDate);
+    
+    // We add +12 hours so the date represents Noon UTC, preventing time zone shifts
+    const safeDate = new Date(dt.getTime() + (12 * 60 * 60 * 1000)); 
+    
+    const start = new Date(safeDate.getTime() - 86400000).toISOString().split('T')[0];
+    const end = new Date(safeDate.getTime() + 86400000).toISOString().split('T')[0];
+    
+    // Explicitly use the timestamp keyword matching the Python script format
+    whereClause = encodeURIComponent(`stormdate >= timestamp '${start} 00:00:00' AND stormdate <= timestamp '${end} 23:59:59'`);
+  }
+
+  for (const layerId of layerIds) {
+    // Send both the spatial box AND the date filter to the server
+    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=${whereClause}&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) {
+        continue;
+      }
+
+      const payload = await response.json();
+      const features = Array.isArray(payload && payload.features) ? payload.features : [];
+
+      for (const feature of features) {
+        // Look for .properties (GeoJSON) instead of .attributes
+        if (!feature || (!feature.properties && !feature.attributes)) {
+          continue;
+        }
+
+        const attrs = feature.properties || feature.attributes;
+        // Inject IDs for dynamic photo loading later
+        attrs._layerId = layerId;
+        attrs._objectId = attrs.objectid || attrs.OBJECTID;
+
+        const valueSet = [
+          attrs.stormdate,
+          attrs.event_date,
+          attrs.damage_date,
+          attrs.damage_dt,
+          attrs.date,
+          attrs.begin_date,
+          attrs.end_date,
+          attrs.issue_date,
+          attrs.valid,
+          attrs['date'],
+        ];
+
+        const matchesDate = valueSet.some((value) => {
+          const normalized = normalizeDateString(value);
+          return normalized && candidateDates.has(normalized);
+        });
+
+        if (!matchesDate) {
+          continue;
+        }
+
+        const dedupeKey = `${layerId}:${attrs.objectid || attrs.OBJECTID || attrs.event_id || attrs.EVENT_ID || JSON.stringify(feature.geometry)}`;
+        if (!unique.has(dedupeKey)) {
+          unique.set(dedupeKey, feature);
+        }
+      }
+    } catch (error) {
+      console.warn(`DAT layer ${layerId} query failed:`, error);
+    }
+  }
+
+  return Array.from(unique.values());
+}
+
+async function updateIemRadar() {
+  const record = getSelectedRecord();
+  const statusEl = document.getElementById('radarStatus');
+  const scrubber = document.getElementById('radarTimeScrubber');
+  const offsetLabel = document.getElementById('radarOffsetLabel');
+  const myRequestToken = ++state.radarRequestToken;
+
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+    state.radarLayer = null;
+  }
+
+  const isPrimaryTrack = record && (record.source === 'CSV' || record.source === 'SPC');
+
+  if (state.radarType === 'off' || !isPrimaryTrack) {
+    if (statusEl) statusEl.textContent = '';
+    if (scrubber) scrubber.classList.add('hidden');
+    return;
+  }
+
+  const dateStr = normalizeDateString(record.beginDate || record.endDate);
+ 
+  const timeStr = normalizeTimeString(record.beginTime || '00:00');
+  const timeInfo = record.source === 'SPC' ? getSpcRadarTimeInfo(record) : {
+    dateStr,
+    timeStr,
+    offsetMinutes: 0,
+    utcDate: new Date(`${normalizeDateString(record.beginDate || record.endDate) || dateStr}T${normalizeTimeString(record.beginTime || '00:00') || timeStr}:00Z`),
+  };
+  const radarDateStr = timeInfo.dateStr || dateStr;
+  const radarTimeStr = timeInfo.timeStr || timeStr;
+
+  const targetDate = timeInfo.utcDate || new Date(`${radarDateStr}T${radarTimeStr}:00Z`);
+
+  if (scrubber) scrubber.classList.remove('hidden');
+
+  // Find nearest radar station
+  if (!state.radarStations || !state.radarStations.length) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
+    return;
+  }
+
+  let nearest = null;
+  let minDst = Infinity;
+  for (const station of state.radarStations) {
+    const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
+    if (d < minDst) {
+      minDst = d;
+      nearest = station;
+    }
+  }
+
+  const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
+  const radarSiteLabel = document.getElementById('radarSiteLabel');
+  if (radarSiteLabel) {
+    radarSiteLabel.textContent = site3;
+  }
+  const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0S';
+  const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SR Velocity';
+
+  // --- QUERY IEM JSON CATALOG FOR VALID TIMESTAMPS ---
+  const trackKey = `${record.id}_${state.radarType}_${site3}`;
+  if (state.radarRecordId !== trackKey) {
+    if (statusEl) statusEl.textContent = `Finding ${site3} scans...`;
+
+    const startIso = new Date(targetDate.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
+    const endIso = new Date(targetDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
+
+    const listUrl = `https://mesonet.agron.iastate.edu/json/radar.py?operation=list&radar=${site3}&product=${product}&start=${startIso}&end=${endIso}`;
+
+    try {
+      const resp = await fetch(listUrl);
+      const data = await resp.json();
+      if (myRequestToken !== state.radarRequestToken) return;
+
+      const scans = (data.scans || []).map(s => s.ts);
+
+      if (!scans.length) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">No ${typeLabel} scans found for ${site3} in this timeframe.</span>`;
+        return;
+      }
+
+      state.radarScans = scans;
+      state.radarRecordId = trackKey;
+
+      const targetMs = targetDate.getTime();
+      let bestIdx = 0;
+      let minDiff = Infinity;
+      scans.forEach((ts, idx) => {
+        const diff = Math.abs(new Date(ts).getTime() - targetMs);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestIdx = idx;
+        }
+      });
+      state.radarScanIndex = bestIdx;
+
+      const slider = document.getElementById('radarTimeSlider');
+      if (slider) {
+        slider.min = '0';
+        slider.max = String(scans.length - 1);
+        slider.step = '1';
+        slider.value = String(bestIdx);
+      }
+    } catch (err) {
+      if (myRequestToken !== state.radarRequestToken) return;
+      console.warn('IEM radar list fetch error', err);
+      if (statusEl) statusEl.textContent = 'Failed to retrieve scan index from IEM.';
+      return;
+    }
+  }
+
+  if (myRequestToken !== state.radarRequestToken) return;
+  if (!state.radarScans || !state.radarScans.length) return;
+
+  const currentTs = state.radarScans[state.radarScanIndex];
+  const scanDate = new Date(currentTs);
+
+  const yyyy = scanDate.getUTCFullYear();
+  const mm = String(scanDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(scanDate.getUTCDate()).padStart(2, '0');
+  const hh = String(scanDate.getUTCHours()).padStart(2, '0');
+  const min = String(scanDate.getUTCMinutes()).padStart(2, '0');
+
+  const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
+
+  if (offsetLabel) {
+    offsetLabel.textContent = `${hh}:${min} UTC (${state.radarScanIndex + 1}/${state.radarScans.length})`;
+  }
+
+  const nextLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
+    layers: 'single-archive',
+    format: 'image/png',
+    transparent: true,
+    sector: site3,
+    prod: product,
+    append: 'bottom',
+    year: yyyy,
+    month: mm,
+    day: dd,
+    time: hh + min,
+    fullTime: fullTimeParam,
+    uppercase: false,
+    opacity: state.radarOpacity,
+    zIndex: 200,
+    tileSize: 1024,
+    updateWhenIdle: true
+  });
+
+  if (myRequestToken !== state.radarRequestToken) return;
+
+  if (state.radarLayer) {
+    state.map.removeLayer(state.radarLayer);
+  }
+  state.radarLayer = nextLayer;
+  state.radarLayer.addTo(state.map);
+
+  if (statusEl) {
+    statusEl.textContent = `${typeLabel} (${site3})`;
+  }
 }
 
 function bindControls() {
@@ -905,44 +1419,103 @@ function bindControls() {
       }
     });
   }
-}
+  // --- SYNC MANUAL TYPING TO MAP MARKERS ---
+  const syncCoordinatesToMap = () => {
+    const record = getSelectedRecord();
+    if (!record || !state.editHandles.start || !state.editHandles.end) return;
 
-function renderEditor() {
-  const form = document.getElementById('segmentForm');
-  const empty = document.getElementById('selectionEmpty');
-  const selectionLabel = document.getElementById('selectionLabel');
-  const record = getSelectedRecord();
+    const sLat = Number(document.getElementById('beginLat').value) || record.beginLatitude;
+    const sLon = Number(document.getElementById('beginLon').value) || record.beginLongitude;
+    const eLat = Number(document.getElementById('endLat').value) || record.endLatitude;
+    const eLon = Number(document.getElementById('endLon').value) || record.endLongitude;
 
-  updateDatLayerSectionVisibility();
+    state.editHandles.start.setLatLng([sLat, sLon]);
+    state.editHandles.end.setLatLng([eLat, eLon]);
+    
+    const path = state.polyLines.get(record.id);
+    if (path) path.setLatLngs([[sLat, sLon], [eLat, eLon]]);
 
-  if (!record) {
-    if (form) form.classList.add('hidden');
-    if (empty) empty.classList.remove('hidden');
-    if (selectionLabel) selectionLabel.textContent = '';
-    return;
-  }
+    updateLivePathLength();
+  };
 
-  if (form) form.classList.remove('hidden');
-  if (empty) empty.classList.add('hidden');
+  ['beginLat', 'beginLon', 'endLat', 'endLon'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', syncCoordinatesToMap);
+  });
 
-  const reportIdField = document.getElementById('reportId');
-  if (reportIdField) reportIdField.value = record.reportId || record.id || '';
+  // --- ADD TINY RESET BUTTONS TO QC FIELDS ---
+  const fieldMapping = {
+    'reportId': 'reportId',
+    'beginDate': 'beginDate',
+    'beginTime': 'beginTime',
+    'endDate': 'endDate',
+    'endTime': 'endTime',
+    'beginLat': 'beginLatitude',
+    'beginLon': 'beginLongitude',
+    'endLat': 'endLatitude',
+    'endLon': 'endLongitude',
+    'pathLength': 'lengthMiles',
+    'pathWidth': 'widthYards',
+    'qcNotes': 'qcNotes'
+  };
 
-  document.getElementById('beginDate').value = record.beginDate || '';
-  document.getElementById('beginTime').value = record.beginTime || '';
-  document.getElementById('endDate').value = record.endDate || '';
-  document.getElementById('endTime').value = record.endTime || '';
-  document.getElementById('beginLat').value = record.beginLatitude ?? '';
-  document.getElementById('beginLon').value = record.beginLongitude ?? '';
-  document.getElementById('endLat').value = record.endLatitude ?? '';
-  document.getElementById('endLon').value = record.endLongitude ?? '';
-  document.getElementById('pathLength').value = record.lengthMiles ?? '';
-  document.getElementById('pathWidth').value = record.widthYards ?? '';
-  document.getElementById('qcNotes').value = record.qcNotes || '';
+  Object.keys(fieldMapping).forEach(inputId => {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    
+    const label = input.closest('label');
+    if (label) {
+      label.style.position = 'relative';
+      
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary reset-field-btn';
+      btn.innerHTML = '↺';
+      btn.title = 'Reset to saved value';
+      
+      Object.assign(btn.style, {
+        position: 'absolute',
+        right: '0',
+        top: '-2px',
+        width: '20px',
+        height: '20px',
+        padding: '0',
+        fontSize: '12px',
+        lineHeight: '1',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: '4px',
+        border: '1px solid var(--border)',
+        background: 'transparent',
+        cursor: 'pointer',
+        color: 'var(--muted)',
+        transition: 'color 0.2s'
+      });
+      
+      btn.onmouseover = () => btn.style.color = 'var(--text)';
+      btn.onmouseout = () => btn.style.color = 'var(--muted)';
+      
+      label.appendChild(btn);
 
-  if (selectionLabel) {
-    selectionLabel.textContent = `${record.source || 'Report'} • ${record.beginDate || 'n/a'} • ${record.magnitude ?? 'n/a'}`;
-  }
+      btn.addEventListener('click', () => {
+        const record = getSelectedRecord();
+        if (!record) return;
+        
+        if (['beginLat', 'beginLon'].includes(inputId)) {
+          document.getElementById('beginLat').value = record.beginLatitude ?? '';
+          document.getElementById('beginLon').value = record.beginLongitude ?? '';
+          syncCoordinatesToMap();
+        } else if (['endLat', 'endLon'].includes(inputId)) {
+          document.getElementById('endLat').value = record.endLatitude ?? '';
+          document.getElementById('endLon').value = record.endLongitude ?? '';
+          syncCoordinatesToMap();
+        } else {
+          input.value = record[fieldMapping[inputId]] ?? '';
+        }
+      });
+    }
+  });
 }
 
 function updateDatLayerSectionVisibility() {
@@ -962,7 +1535,7 @@ function toCsv(rows) {
   const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
   const escapeCell = (value) => {
     const text = value == null ? '' : String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return /[","]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
 
   const lines = [headers.join(',')];
@@ -1003,6 +1576,10 @@ function renderFilteredData(options = {}) {
     }
   }
 
+  if (state.editLayerGroup) {
+    state.editLayerGroup.clearLayers();
+  }
+
   if (!filtered.length) {
     const trackCount = document.getElementById('trackCount');
     const maxMagnitude = document.getElementById('maxMagnitude');
@@ -1041,13 +1618,15 @@ function renderFilteredData(options = {}) {
     polyline.addTo(state.layerGroup);
     state.polyLines.set(row.id, polyline);
 
-    const startMarker = L.circleMarker(startPoint, {
-      radius: 4,
-      color: '#f8fafc',
-      fillColor: color,
-      fillOpacity: layerOpacity,
-      weight: 1,
+    const startIcon = L.divIcon({
+      className: 'ncei-start-icon',
+      html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.5); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,      iconSize: [8, 8],
+      iconAnchor: [4, 4]
+    });
+    const startMarker = L.marker(startPoint, {
+      icon: startIcon,
       opacity: layerOpacity,
+      zIndexOffset: 100
     });
     if (row.source !== 'CSV') {
       startMarker.bindPopup(buildPopup(row));
@@ -1057,6 +1636,26 @@ function renderFilteredData(options = {}) {
       await handleTrackSelection(row, true);
     });
     startMarker.addTo(state.layerGroup);
+
+    const endIcon = L.divIcon({
+      className: 'ncei-end-icon',
+      html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,
+      iconSize: [8, 8],
+      iconAnchor: [4, 4]
+    });
+    
+    const endMarker = L.marker(endPoint, {
+      icon: endIcon,
+      opacity: layerOpacity,
+      zIndexOffset: 0
+    });
+    
+    if (row.source !== 'CSV') endMarker.bindPopup(buildPopup(row));
+    endMarker.on('click', async (event) => {
+      L.DomEvent.stopPropagation(event);
+      await handleTrackSelection(row, true);
+    });
+    endMarker.addTo(state.layerGroup);
 
     bounds.extend([startPoint, endPoint]);
   });
@@ -1100,100 +1699,6 @@ function isMultiCountyRow(row) {
   return false;
 }
 
-let currentDatSearchId = 0;
-
-async function handleTrackSelection(record, preserveMapView = true) {
-  if (!record) return;
-
-  if (record.source !== 'CSV') {
-    return;
-  }
-
-  state.selectedId = record.id;
-  renderEditor();
-  renderDetailsPanel(record);
-
-  if (state.radarLayer) {
-    state.map.removeLayer(state.radarLayer);
-    state.radarLayer = null;
-  }
-  state.radarScans = [];
-  state.radarScanIndex = 0;
-  state.radarRecordId = null;
-  
-  // Highlight the selected track without destroying the map layers
-  if (state.polyLines) {
-    state.polyLines.forEach((layer, id) => {
-      const isSelected = (id === state.selectedId);
-      if (layer.setStyle) {
-        layer.setStyle({
-          weight: isSelected ? 6 : 3,
-          opacity: isSelected ? 1 : 0.8
-        });
-      }
-    });
-  }
-  const statusEl = document.getElementById('radarStatus');
-  const offsetLabel = document.getElementById('radarOffsetLabel');
-  if (statusEl) statusEl.textContent = '';
-  if (offsetLabel) offsetLabel.textContent = '--:-- UTC';
-
-  // Only zoom if preserveMapView is explicitly passed as false
-  if (!preserveMapView && state.map) {
-    zoomToSelectedTrack();
-  }
-
-  const dateLabel = record.beginDate || record.endDate || 'this date';
-  const searchId = ++currentDatSearchId;
-
-  if (!document.getElementById('spinner-style')) {
-    const style = document.createElement('style');
-    style.id = 'spinner-style';
-    style.innerHTML = `@keyframes dat-spin { 100% { transform: rotate(360deg); } }`;
-    document.head.appendChild(style);
-  }
-
-  setStatus(`
-    <span style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation: dat-spin 0.75s linear infinite; vertical-align: text-bottom; margin-right: 6px;"></span>
-    Searching NOAA DAT for ${dateLabel}...
-  `);
-
-  const matches = await fetchNoaaDatForTrack(record);
-
-  // If another track was clicked while fetching, bail out cleanly
-  if (searchId !== currentDatSearchId) return;
-
-  state.noaaDatMatches = matches || [];
-  renderDatLayer(state.noaaDatMatches);
-  updateDatLayerSectionVisibility();
-
-  if (matches && matches.length) {
-    setStatus(`Selected ${record.reportId || record.id}. DAT found ${matches.length} feature(s).`, false);
-  } else {
-    setStatus(`Selected ${record.reportId || record.id}. 0 DAT features found.`, false);
-  }
-  updateIemRadar();
-  // When a track is clicked, clear the cached scans and index
-  state.radarScans = [];
-  state.radarScanIndex = 0;
-  state.radarRecordId = null;
-
-  // Only show radar block for primary tracks
-  const radarControls = document.getElementById('radarControls');
-  if (radarControls) {
-    if (record.source === 'CSV' || record.source === 'SPC') {
-      radarControls.classList.remove('hidden');
-      updateIemRadar();
-    } else {
-      radarControls.classList.add('hidden');
-      if (state.radarLayer) {
-        state.map.removeLayer(state.radarLayer);
-        state.radarLayer = null;
-      }
-    }
-  }
-}
-
 function clearDatLayer(clearData = false) {
   if (state.datLayerGroup) {
     state.datLayerGroup.clearLayers();
@@ -1222,46 +1727,6 @@ function clearRadarLayer(clearCache = false) {
   if (radarOffsetLabel) radarOffsetLabel.textContent = '--:-- UTC';
 }
 
-async function loadDatAttachments(layerId, objectId, containerId) {
-  const container = document.getElementById(containerId);
-  if (!container || container.dataset.loaded) return;
-
-  if (layerId === undefined || objectId === undefined) {
-    container.innerHTML = '';
-    return;
-  }
-
-  container.innerHTML = '<div style="text-align:center; padding: 10px; font-size:0.75rem; color:var(--muted); border-top:1px solid var(--border); margin-top: 10px; grid-column: 1 / -1;">Checking for photos...</div>';
-  container.dataset.loaded = 'true';
-
-  try {
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments?f=json`;
-    const resp = await fetch(url, { cache: 'no-store' });
-    const data = await resp.json();
-    
-    if (data && data.attachmentInfos && data.attachmentInfos.length > 0) {
-      // Grab the first valid image attachment
-      const photo = data.attachmentInfos.find(a => a.contentType.startsWith('image/'));
-      if (photo) {
-        const imgUrl = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments/${photo.id}`;
-        container.innerHTML = `
-          <div style="margin-top: 12px; text-align: center; border-top: 1px solid var(--border); padding-top: 10px; grid-column: 1 / -1;">
-            <a href="${imgUrl}" target="_blank">
-              <img src="${imgUrl}" alt="DAT Damage Photo" style="max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; background: rgba(0,0,0,0.2);" />
-            </a>
-            <div style="font-size: 0.7rem; color: var(--muted); margin-top: 4px;">Click image to expand</div>
-          </div>
-        `;
-        return;
-      }
-    }
-    container.innerHTML = ''; // Hide if no photos exist
-  } catch (err) {
-    console.warn('Failed to fetch DAT attachments', err);
-    container.innerHTML = '';
-  }
-}
-
 function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', geomType = 'Unknown Geometry') {
   const values = attrs || {};
   const rows = [];
@@ -1276,13 +1741,11 @@ function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', g
     rows.push([label, text]);
   };
 
-  // Combine date and time for the "Storm Date" field
   const rawDate = firstNonEmpty(values.stormdate, values.EVENT_DATE, values.event_date, values.date);
   let stormDateFormatted = 'N/A';
 
   if (rawDate) {
     const numDate = Number(rawDate);
-    // Handle ArcGIS epoch timestamps (milliseconds)
     if (!isNaN(numDate) && numDate > 10000000000) {
       const dt = new Date(numDate);
       if (!isNaN(dt.getTime())) {
@@ -1294,16 +1757,18 @@ function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', g
         stormDateFormatted = `${mm}/${dd}/${yyyy} ${hh}:${min} UTC`;
       }
     } else {
-      // Handle standard string formats
       const rawTime = firstNonEmpty(values.stormtime, values.EVENT_TIME, values.event_time, values.time);
       stormDateFormatted = rawTime ? `${rawDate} ${rawTime} UTC` : String(rawDate);
     }
   }
 
-  // Map DAT attributes to the exact requested labels
+  // Check for length provided by DAT or the length we just calculated
+  const lengthVal = firstNonEmpty(values.calculated_length, values.length, values.LENGTH, values.track_length, values.track_length_mi);
+
   addRow('Event ID', values.event_id, values.EVENT_ID, values.eventId, values.EVENTID, values.objectid, values.OBJECTID, fallbackLabel);
   addRow('Storm Date', stormDateFormatted);
   addRow('EF Rating', efValue);
+  addRow('Path Length', lengthVal ? (String(lengthVal).includes('mi') ? lengthVal : `${Number(lengthVal).toFixed(2)} mi`) : null);
   addRow('Winds (MPH)', values.wind_speed, values.WIND_SPEED, values.wind, values.WIND);
   addRow('Damage Indicator', values.di, values.DI, values.damage_txt, values.DAMAGE_TXT, values.damage_indicator, values.DAMAGE_INDICATOR);
   addRow('Degree of Damage', values.dod, values.DOD, values.degree_of_damage);
@@ -1320,7 +1785,6 @@ function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', g
     geomType = 'Point';
   }
 
-  // Deduplicate rows to prevent redundant UI data
   const uniqueRows = [];
   const seen = new Set();
   for (const [label, text] of rows) {
@@ -1332,7 +1796,6 @@ function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', g
   }
 
   const popupCells = uniqueRows.map(([label, text]) => {
-    // If a standard field contains a raw URL, make it a clickable link
     if (typeof text === 'string' && text.startsWith('http')) {
       return `<span>${escapeHtml(label)}</span><strong><a href="${escapeHtml(text)}" target="_blank" style="color: var(--accent);">View Link</a></strong>`;
     }
@@ -1347,7 +1810,6 @@ function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', g
     ? `<div id="${containerId}" style="grid-column: 1 / -1;"></div>`
     : '';
 
-  // Added max-height and overflow-y to make the content block scrollable
   return `
     <div class="popup-title">NOAA DAT ${escapeHtml(geomType)}</div>
     <div class="popup-grid" style="max-height: 280px; overflow-y: auto; padding-right: 6px; overflow-x: hidden;">
@@ -1389,6 +1851,7 @@ function renderDatLayer(features) {
       
       const geometry = feature.geometry;
       const attrs = feature.properties || feature.attributes || {};
+
       const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
       const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
       const popupHtml = buildDatPopupHtml(attrs, label, efValue, geometry.type);
@@ -1430,8 +1893,27 @@ function renderDatLayer(features) {
           renderer: state.datRenderers.lines,
           color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
         });
+        
         line.bindPopup(popupHtml);
-        line.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
+        
+        // Push the DAT length to the corner window when opened, clear when closed
+        line.on('popupopen', () => {
+          loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`);
+        if (geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
+          const lengthMiles = calculateGeometryLength(geometry);
+          if (lengthMiles > 0) {
+            attrs.calculated_length = `${lengthMiles.toFixed(2)} mi`;
+          }
+        }
+        if (attrs.calculated_length) {
+            updateLivePathLength(attrs.calculated_length);
+          }
+        });
+        
+        line.on('popupclose', () => {
+          updateLivePathLength();
+        });
+        
         return line;
       }
 
@@ -1488,9 +1970,6 @@ function coordinatesToLatLngs(coordinates) {
     .map((segment) => Array.isArray(segment) && segment.length >= 2 ? [segment[1], segment[0]] : null)
     .filter(Boolean);
 }
-
-const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
-const MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
 
 function applyTheme(mode) {
   state.theme = mode;
@@ -2099,7 +2578,7 @@ function parseDatRecords(text) {
       continue;
     }
 
-    const parts = line.split(/[\t,|]+/).map((part) => part.trim()).filter(Boolean);
+    const parts = line.split(/[	,|]+/).map((part) => part.trim()).filter(Boolean);
     if (parts.length < 7) {
       continue;
     }
@@ -2135,106 +2614,6 @@ function getSelectedRecord() {
   return state.filtered.find((row) => row.id === state.selectedId) || state.rows.find((row) => row.id === state.selectedId) || null;
 }
 
-async function fetchNoaaDatForTrack(record) {
-  if (!record) {
-    return [];
-  }
-
-  const candidateDates = new Set();
-  for (const candidate of [record.beginDate, record.endDate, record.date, record.event_date, record.stormdate, record.damage_date]) {
-    const normalized = normalizeDateString(candidate);
-    if (normalized) {
-      candidateDates.add(normalized);
-    }
-  }
-
-  if (!candidateDates.size) {
-    return [];
-  }
-
-  const layerIds = [0, 1, 2];
-  const unique = new Map();
-
-  const xMin = Math.min(record.beginLongitude, record.endLongitude) - 0.5;
-  const yMin = Math.min(record.beginLatitude, record.beginLatitude) - 0.5;
-  const xMax = Math.max(record.beginLongitude, record.endLongitude) + 0.5;
-  const yMax = Math.max(record.beginLatitude, record.endLatitude) + 0.5;
-  const bbox = `${xMin},${yMin},${xMax},${yMax}`;
-
-  // Extract the target date (e.g. "2013-05-20")
-  const targetDate = normalizeDateString(firstNonEmpty(record.beginDate, record.endDate));
-  
-  // Build a strict date filter for the ArcGIS server
-  let whereClause = '1%3D1';
-  if (targetDate) {
-    const dt = new Date(targetDate);
-    
-    // We add +12 hours so the date represents Noon UTC, preventing time zone shifts
-    const safeDate = new Date(dt.getTime() + (12 * 60 * 60 * 1000)); 
-    
-    const start = new Date(safeDate.getTime() - 86400000).toISOString().split('T')[0];
-    const end = new Date(safeDate.getTime() + 86400000).toISOString().split('T')[0];
-    
-    // Explicitly use the timestamp keyword matching the Python script format
-    whereClause = encodeURIComponent(`stormdate >= timestamp '${start} 00:00:00' AND stormdate <= timestamp '${end} 23:59:59'`);
-  }
-
-  for (const layerId of layerIds) {
-    // Send both the spatial box AND the date filter to the server
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/query?f=geojson&where=${whereClause}&geometry=${bbox}&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true&outSR=4326`;    try {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) {
-        continue;
-      }
-
-      const payload = await response.json();
-      const features = Array.isArray(payload && payload.features) ? payload.features : [];
-
-      for (const feature of features) {
-        // Look for .properties (GeoJSON) instead of .attributes
-        if (!feature || (!feature.properties && !feature.attributes)) {
-          continue;
-        }
-
-        const attrs = feature.properties || feature.attributes;
-        // Inject IDs for dynamic photo loading later
-        attrs._layerId = layerId;
-        attrs._objectId = attrs.objectid || attrs.OBJECTID;
-
-        const valueSet = [
-          attrs.stormdate,
-          attrs.event_date,
-          attrs.damage_date,
-          attrs.damage_dt,
-          attrs.date,
-          attrs.begin_date,
-          attrs.end_date,
-          attrs.issue_date,
-          attrs.valid,
-          attrs['date'],
-        ];
-
-        const matchesDate = valueSet.some((value) => {
-          const normalized = normalizeDateString(value);
-          return normalized && candidateDates.has(normalized);
-        });
-
-        if (!matchesDate) {
-          continue;
-        }
-
-        const dedupeKey = `${layerId}:${attrs.objectid || attrs.OBJECTID || attrs.event_id || attrs.EVENT_ID || JSON.stringify(feature.geometry)}`;
-        if (!unique.has(dedupeKey)) {
-          unique.set(dedupeKey, feature);
-        }
-      }
-    } catch (error) {
-      console.warn(`DAT layer ${layerId} query failed:`, error);
-    }
-  }
-
-  return Array.from(unique.values());
-}
 function getDistanceMiles(lat1, lon1, lat2, lon2) {
   const R = 3958.8; // Earth's radius in miles
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -2244,168 +2623,6 @@ function getDistanceMiles(lat1, lon1, lat2, lon2) {
             Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
-}
-
-async function updateIemRadar() {
-  const record = getSelectedRecord();
-  const statusEl = document.getElementById('radarStatus');
-  const scrubber = document.getElementById('radarTimeScrubber');
-  const offsetLabel = document.getElementById('radarOffsetLabel');
-  const myRequestToken = ++state.radarRequestToken;
-
-  if (state.radarLayer) {
-    state.map.removeLayer(state.radarLayer);
-    state.radarLayer = null;
-  }
-
-  const isPrimaryTrack = record && (record.source === 'CSV' || record.source === 'SPC');
-
-  if (state.radarType === 'off' || !isPrimaryTrack) {
-    if (statusEl) statusEl.textContent = '';
-    if (scrubber) scrubber.classList.add('hidden');
-    return;
-  }
-
-  const dateStr = normalizeDateString(record.beginDate || record.endDate);
- 
-  const timeStr = normalizeTimeString(record.beginTime || '00:00');
-  const timeInfo = record.source === 'SPC' ? getSpcRadarTimeInfo(record) : {
-    dateStr,
-    timeStr,
-    offsetMinutes: 0,
-    utcDate: new Date(`${normalizeDateString(record.beginDate || record.endDate) || dateStr}T${normalizeTimeString(record.beginTime || '00:00') || timeStr}:00Z`),
-  };
-  const radarDateStr = timeInfo.dateStr || dateStr;
-  const radarTimeStr = timeInfo.timeStr || timeStr;
-
-  const targetDate = timeInfo.utcDate || new Date(`${radarDateStr}T${radarTimeStr}:00Z`);
-
-  if (scrubber) scrubber.classList.remove('hidden');
-
-  // Find nearest radar station
-  if (!state.radarStations || !state.radarStations.length) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger)">Radar station list unavailable.</span>';
-    return;
-  }
-
-  let nearest = null;
-  let minDst = Infinity;
-  for (const station of state.radarStations) {
-    const d = getDistanceMiles(record.beginLatitude, record.beginLongitude, station.lat, station.lon);
-    if (d < minDst) {
-      minDst = d;
-      nearest = station;
-    }
-  }
-
-  const site3 = nearest.id.length === 4 ? nearest.id.slice(1) : nearest.id;
-  const radarSiteLabel = document.getElementById('radarSiteLabel');
-  if (radarSiteLabel) {
-    radarSiteLabel.textContent = site3;
-  }
-  const product = state.radarType === 'reflectivity' ? 'N0B' : 'N0S';
-  const typeLabel = state.radarType === 'reflectivity' ? 'Reflectivity' : 'SR Velocity';
-
-  // --- QUERY IEM JSON CATALOG FOR VALID TIMESTAMPS ---
-  const trackKey = `${record.id}_${state.radarType}_${site3}`;
-  if (state.radarRecordId !== trackKey) {
-    if (statusEl) statusEl.textContent = `Finding ${site3} scans...`;
-
-    const startIso = new Date(targetDate.getTime() - 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
-    const endIso = new Date(targetDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) + 'Z';
-
-    const listUrl = `https://mesonet.agron.iastate.edu/json/radar.py?operation=list&radar=${site3}&product=${product}&start=${startIso}&end=${endIso}`;
-
-    try {
-      const resp = await fetch(listUrl);
-      const data = await resp.json();
-      if (myRequestToken !== state.radarRequestToken) return;
-
-      const scans = (data.scans || []).map(s => s.ts);
-
-      if (!scans.length) {
-        if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger)">No ${typeLabel} scans found for ${site3} in this timeframe.</span>`;
-        return;
-      }
-
-      state.radarScans = scans;
-      state.radarRecordId = trackKey;
-
-      const targetMs = targetDate.getTime();
-      let bestIdx = 0;
-      let minDiff = Infinity;
-      scans.forEach((ts, idx) => {
-        const diff = Math.abs(new Date(ts).getTime() - targetMs);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestIdx = idx;
-        }
-      });
-      state.radarScanIndex = bestIdx;
-
-      const slider = document.getElementById('radarTimeSlider');
-      if (slider) {
-        slider.min = '0';
-        slider.max = String(scans.length - 1);
-        slider.step = '1';
-        slider.value = String(bestIdx);
-      }
-    } catch (err) {
-      if (myRequestToken !== state.radarRequestToken) return;
-      console.warn('IEM radar list fetch error', err);
-      if (statusEl) statusEl.textContent = 'Failed to retrieve scan index from IEM.';
-      return;
-    }
-  }
-
-  if (myRequestToken !== state.radarRequestToken) return;
-  if (!state.radarScans || !state.radarScans.length) return;
-
-  const currentTs = state.radarScans[state.radarScanIndex];
-  const scanDate = new Date(currentTs);
-
-  const yyyy = scanDate.getUTCFullYear();
-  const mm = String(scanDate.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(scanDate.getUTCDate()).padStart(2, '0');
-  const hh = String(scanDate.getUTCHours()).padStart(2, '0');
-  const min = String(scanDate.getUTCMinutes()).padStart(2, '0');
-
-  const fullTimeParam = `${yyyy}-${mm}-${dd}T${hh}:${min}:00.000Z`;
-
-  if (offsetLabel) {
-    offsetLabel.textContent = `${hh}:${min} UTC (${state.radarScanIndex + 1}/${state.radarScans.length})`;
-  }
-
-  const nextLayer = L.tileLayer.wms('https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi', {
-    layers: 'single-archive',
-    format: 'image/png',
-    transparent: true,
-    sector: site3,
-    prod: product,
-    append: 'bottom',
-    year: yyyy,
-    month: mm,
-    day: dd,
-    time: hh + min,
-    fullTime: fullTimeParam,
-    uppercase: false,
-    opacity: state.radarOpacity,
-    zIndex: 200,
-    tileSize: 1024,
-    updateWhenIdle: true
-  });
-
-  if (myRequestToken !== state.radarRequestToken) return;
-
-  if (state.radarLayer) {
-    state.map.removeLayer(state.radarLayer);
-  }
-  state.radarLayer = nextLayer;
-  state.radarLayer.addTo(state.map);
-
-  if (statusEl) {
-    statusEl.textContent = `${typeLabel} (${site3})`;
-  }
 }
 
 function zoomToConus() {
@@ -2509,52 +2726,6 @@ function resolveAssetUrl(relativePath) {
   }
 }
 
-async function loadCountyBoundaries() {
-  const basePath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
-
-  try {
-    if (window.location.protocol === 'file:') {
-      console.warn('County boundaries are not available from a file:// page. Use a local web server or GitHub Pages.');
-      return;
-    }
-
-    const shpUrl = resolveAssetUrl(`${basePath}.shp`);
-    const geojson = await shp(shpUrl);
-
-    state.countyLayer = L.geoJSON(geojson, {
-      pane: 'countyPane',
-      style: {
-        color: '#64748b',
-        weight: 1,
-        opacity: 0.55,
-        fillColor: 'transparent',
-        fillOpacity: 0,
-        interactive: false
-      }
-    });
-    state.countyLayer.addTo(state.map);
-  } catch (err) {
-    try {
-      const geojsonDir = await shp(resolveAssetUrl(basePath));
-      state.countyLayer = L.geoJSON(geojsonDir, {
-        pane: 'countyPane',
-        renderer: L.svg({ pane: 'countyPane' }),
-        style: {
-          color: '#64748b',
-          weight: 1,
-          opacity: 0.55,
-          fillColor: 'transparent',
-          fillOpacity: 0,
-          interactive: false
-        }
-      });
-      state.countyLayer.addTo(state.map);
-    } catch (dirErr) {
-      console.warn('Failed to load county shapefile:', err, dirErr);
-    }
-  }
-}
-
 function getSpcRadarTimeInfo(record) {
   const dateStr = normalizeDateString(record.beginDate || record.endDate);
   const timeStr = normalizeTimeString(record.beginTime || '00:00');
@@ -2599,6 +2770,7 @@ function renderEditor() {
   if (!record) {
     if (form) form.classList.add('hidden');
     if (empty) empty.classList.remove('hidden');
+    if (state.editLayerGroup) state.editLayerGroup.clearLayers();
     return;
   }
 
@@ -2619,142 +2791,6 @@ function renderEditor() {
   document.getElementById('pathLength').value = record.lengthMiles ?? '';
   document.getElementById('pathWidth').value = record.widthYards ?? '';
   document.getElementById('qcNotes').value = record.qcNotes || '';
-
-}
-
-async function loadDatAttachments(layerId, objectId, containerId) {
-  const container = document.getElementById(containerId);
-  if (!container || container.dataset.loaded) return;
-
-  if (layerId === undefined || objectId === undefined) {
-    container.innerHTML = '';
-    return;
-  }
-
-  container.innerHTML = '<div style="text-align:center; padding: 10px; font-size:0.75rem; color:var(--muted); border-top:1px solid var(--border); margin-top: 10px; grid-column: 1 / -1;">Checking for photos...</div>';
-  container.dataset.loaded = 'true';
-
-  try {
-    const url = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments?f=json`;
-    const resp = await fetch(url, { cache: 'no-store' });
-    const data = await resp.json();
-    
-    if (data && data.attachmentInfos && data.attachmentInfos.length > 0) {
-      // Grab the first valid image attachment
-      const photo = data.attachmentInfos.find(a => a.contentType.startsWith('image/'));
-      if (photo) {
-        const imgUrl = `https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/MapServer/${layerId}/${objectId}/attachments/${photo.id}`;
-        container.innerHTML = `
-          <div style="margin-top: 12px; text-align: center; border-top: 1px solid var(--border); padding-top: 10px; grid-column: 1 / -1;">
-            <a href="${imgUrl}" target="_blank">
-              <img src="${imgUrl}" alt="DAT Damage Photo" style="max-width: 100%; max-height: 200px; border-radius: 6px; object-fit: contain; background: rgba(0,0,0,0.2);" />
-            </a>
-            <div style="font-size: 0.7rem; color: var(--muted); margin-top: 4px;">Click image to expand</div>
-          </div>
-        `;
-        return;
-      }
-    }
-    container.innerHTML = ''; // Hide if no photos exist
-  } catch (err) {
-    console.warn('Failed to fetch DAT attachments', err);
-    container.innerHTML = '';
-  }
-}
-
-function buildDatPopupHtml(attrs = {}, fallbackLabel = 'DAT', efValue = 'N/A', geomType = 'Unknown Geometry') {
-  const values = attrs || {};
-  const rows = [];
-
-  const addRow = (label, ...candidates) => {
-    const value = firstNonEmpty(...candidates);
-    if (value === null || value === undefined) return;
-
-    const text = typeof value === 'string' ? value.trim() : String(value);
-    if (!text || text === 'null' || text === 'NaN') return;
-
-    rows.push([label, text]);
-  };
-
-  // Combine date and time for the "Storm Date" field
-  const rawDate = firstNonEmpty(values.stormdate, values.EVENT_DATE, values.event_date, values.date);
-  let stormDateFormatted = 'N/A';
-
-  if (rawDate) {
-    const numDate = Number(rawDate);
-    // Handle ArcGIS epoch timestamps (milliseconds)
-    if (!isNaN(numDate) && numDate > 10000000000) {
-      const dt = new Date(numDate);
-      if (!isNaN(dt.getTime())) {
-        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
-        const dd = String(dt.getUTCDate()).padStart(2, '0');
-        const yyyy = dt.getUTCFullYear();
-        const hh = String(dt.getUTCHours()).padStart(2, '0');
-        const min = String(dt.getUTCMinutes()).padStart(2, '0');
-        stormDateFormatted = `${mm}/${dd}/${yyyy} ${hh}:${min} UTC`;
-      }
-    } else {
-      // Handle standard string formats
-      const rawTime = firstNonEmpty(values.stormtime, values.EVENT_TIME, values.event_time, values.time);
-      stormDateFormatted = rawTime ? `${rawDate} ${rawTime} UTC` : String(rawDate);
-    }
-  }
-
-  // Map DAT attributes to the exact requested labels
-  addRow('Event ID', values.event_id, values.EVENT_ID, values.eventId, values.EVENTID, values.objectid, values.OBJECTID, fallbackLabel);
-  addRow('Storm Date', stormDateFormatted);
-  addRow('EF Rating', efValue);
-  addRow('Winds (MPH)', values.wind_speed, values.WIND_SPEED, values.wind, values.WIND);
-  addRow('Damage Indicator', values.di, values.DI, values.damage_txt, values.DAMAGE_TXT, values.damage_indicator, values.DAMAGE_INDICATOR);
-  addRow('Degree of Damage', values.dod, values.DOD, values.degree_of_damage);
-  addRow('Damage Direction', values.direction, values.DIRECTION, values.damage_direction, values.damage_dir);
-  addRow('Injuries', values.injuries, values.INJURIES, values.injury_count, values.num_injuries);
-  addRow('Fatalities', values.fatalities, values.FATALITIES, values.deaths, values.DEATHS, values.num_fatalities);
-  addRow('Comments', values.comments, values.COMMENTS, values.notes, values.NOTES);
-
-  if (geomType === 'LineString' || geomType === 'MultiLineString') {
-    geomType = 'Path';
-  } else if (geomType === 'MultiPolygon' || geomType === 'Polygon') {
-    geomType = 'Polygon';
-  } else if (geomType === 'Point' || geomType === 'MultiPoint') {
-    geomType = 'Point';
-  }
-
-  // Deduplicate rows to prevent redundant UI data
-  const uniqueRows = [];
-  const seen = new Set();
-  for (const [label, text] of rows) {
-    const key = `${label}::${text}`.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueRows.push([label, text]);
-    }
-  }
-
-  const popupCells = uniqueRows.map(([label, text]) => {
-    // If a standard field contains a raw URL, make it a clickable link
-    if (typeof text === 'string' && text.startsWith('http')) {
-      return `<span>${escapeHtml(label)}</span><strong><a href="${escapeHtml(text)}" target="_blank" style="color: var(--accent);">View Link</a></strong>`;
-    }
-    return `<span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong>`;
-  }).join('');
-
-  const layerId = values._layerId;
-  const objectId = values._objectId;
-  const containerId = `dat-img-${layerId}-${objectId}`;
-  
-  const imageHtml = (layerId !== undefined && objectId !== undefined)
-    ? `<div id="${containerId}" style="grid-column: 1 / -1;"></div>`
-    : '';
-
-  // Added max-height and overflow-y to make the content block scrollable
-  return `
-    <div class="popup-title">NOAA DAT ${escapeHtml(geomType)}</div>
-    <div class="popup-grid" style="max-height: 280px; overflow-y: auto; padding-right: 6px; overflow-x: hidden;">
-      ${popupCells || '<span>Event</span><strong>DAT</strong>'}
-      ${imageHtml}
-    </div>
-  `;
 }
 
 function getEfRank(value) {
@@ -2768,116 +2804,54 @@ function getEfRank(value) {
   return -1; // Unrated, wind, or other types go to the very bottom
 }
 
-function renderDatLayer(features) {
-  clearDatLayer(false);
-  if (!features || !features.length || !state.datLayerGroup || !state.datLayerVisible) return;
-
-  updateDatLayerSectionVisibility();
-
-  // Sort features so higher EF ratings render last (placing them visually on top)
-  const sortedFeatures = [...features].sort((a, b) => {
-    const getEf = (feat) => {
-      const attrs = feat.properties || feat.attributes || {};
-      return firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
-    };
-    return getEfRank(getEf(a)) - getEfRank(getEf(b));
-  });
-
-  const layers = sortedFeatures
-    .map((feature) => {
-      if (!feature || !feature.geometry) return null;
-      
-      const geometry = feature.geometry;
-      const attrs = feature.properties || feature.attributes || {};
-      const label = firstNonEmpty(attrs.event_id, attrs.EVENT_ID, attrs.objectid, attrs.OBJECTID, attrs.damage_txt, attrs.DAMAGE_TXT, 'DAT');
-      const efValue = firstNonEmpty(attrs.efscale, attrs.EFSCALE, attrs.ef_scale, attrs.damage_txt, attrs.DAMAGE_TXT, 'N/A');
-      const popupHtml = buildDatPopupHtml(attrs, label, efValue, geometry.type);
-
-      if (geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
-        if (!state.datPointsVisible) return null;
-        const [lon, lat] = geometry.coordinates;
-        const color = datColorByEf(efValue);
-        const isNonTornado = /TSTM|WIND|TROPICAL/i.test(efValue);
-
-        if (isNonTornado) {
-          const marker = L.circleMarker([lat, lon], {
-            pane: 'datPointsPane',
-            renderer: state.datRenderers.points,
-            radius: 6, color: '#ffffff', weight: 1, fillColor: color, fillOpacity: state.datOpacity,
-          });
-          marker.bindPopup(popupHtml);
-          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
-          return marker;
-        } else {
-          const svgIcon = L.divIcon({
-            className: 'dat-point-icon',
-            html: `<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="0,0 14,0 7,14" fill="${color}" stroke="#ffffff" stroke-width="1"/></svg>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
-          });
-          const marker = L.marker([lat, lon], { pane: 'datPointsPane', icon: svgIcon, opacity: state.datOpacity });
-          marker.bindPopup(popupHtml);
-          marker.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
-          return marker;
-        }
-      }
-
-      if (geometry.type === 'MultiPoint' || geometry.type === 'LineString' || geometry.type === 'MultiLineString') {
-        if (!state.datPathsVisible) return null;
-        const latLngs = geometry.coordinates ? coordinatesToLatLngs(geometry.coordinates) : [];
-        const line = L.polyline(latLngs, {
-          pane: 'datLinesPane',
-          renderer: state.datRenderers.lines,
-          color: datColorByEf(efValue), weight: 3, opacity: state.datOpacity,
-        });
-        line.bindPopup(popupHtml);
-        line.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
-        return line;
-      }
-
-      if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
-        if (!state.datPolygonsVisible) return null;
-        
-        const polygonLayer = L.geoJSON(feature, {
-          style: {
-            pane: 'datPolygonsPane',
-            renderer: state.datRenderers.polygons,
-            color: datColorByEf(efValue), 
-            fillColor: datColorByEf(efValue), 
-            fillOpacity: state.datOpacity * 0.35, 
-            weight: 2, 
-            opacity: state.datOpacity,
-          }
-        });
-        
-        polygonLayer.bindPopup(popupHtml);
-        polygonLayer.on('popupopen', () => loadDatAttachments(attrs._layerId, attrs._objectId, `dat-img-${attrs._layerId}-${attrs._objectId}`));
-        return polygonLayer;
-      }
-      return null;
-    })
-    .filter(Boolean);
-
-  layers.forEach((layer) => layer.addTo(state.datLayerGroup));
+function updateLivePathLength(datLengthStr = null) {
+  const display = document.getElementById('mapPathLength');
+  if (!display) return;
+  
+  const record = getSelectedRecord();
+  let mainText = '';
+  
+  if (record && state.editHandles.start && state.editHandles.end) {
+    const s = state.editHandles.start.getLatLng();
+    const e = state.editHandles.end.getLatLng();
+    const dist = getDistanceMiles(s.lat, s.lng, e.lat, e.lng);
+    mainText = `Track: ${dist.toFixed(2)} mi`;
+  }
+  
+  if (!mainText && !datLengthStr) {
+    display.classList.add('hidden');
+    return;
+  }
+  
+  display.classList.remove('hidden');
+  
+  let html = '';
+  if (mainText) {
+    html += `<div>${mainText}</div>`;
+  }
+  if (datLengthStr) {
+    // Adds a slightly dimmer secondary row for the DAT length
+    html += `<div style="color: #a8a29e; font-size: 0.9em; margin-top: 2px;">DAT: ${datLengthStr}</div>`;
+  }
+  
+  display.innerHTML = html;
 }
 
-function datColorByEf(value) {
-  const text = String(value || '').trim().toUpperCase();
-  
-  // Custom non-tornado colors distinct from EF palette
-  if (text.includes('TSTM') || text.includes('WIND')) return '#8b5cf6'; // Vivid Purple
-  if (text.includes('TROPICAL')) return '#10b981'; // Emerald Green
-  if (text === 'UNKNOWN' || text === 'N/A' || text === '<NULL>') return '#a8a29e'; // Warm Grey
+function calculateGeometryLength(geometry) {
+  if (!geometry || !geometry.coordinates) return 0;
+  let totalMiles = 0;
 
-  const palette = {
-    'EF5': '#9d174d',
-    'EF4': '#dc2626',
-    'EF3': '#f59e0b',
-    'EF3+': '#f59e0b',
-    'EF2': '#facc15',
-    'EF1': '#4ade80',
-    'EF0': '#22d3ee',
-    'EFU': '#64748b',
-  };
-  return palette[text] || '#a8a29e';
+  if (geometry.type === 'LineString') {
+    const coords = geometry.coordinates;
+    for (let i = 0; i < coords.length - 1; i++) {
+      totalMiles += getDistanceMiles(coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]);
+    }
+  } else if (geometry.type === 'MultiLineString') {
+    for (const line of geometry.coordinates) {
+      for (let i = 0; i < line.length - 1; i++) {
+        totalMiles += getDistanceMiles(line[i][1], line[i][0], line[i+1][1], line[i+1][0]);
+      }
+    }
+  }
+  return totalMiles;
 }
