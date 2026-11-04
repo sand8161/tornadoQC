@@ -112,6 +112,45 @@ async function init() {
   await loadData();
 }
 
+async function loadData() {
+  try {
+    let rows = await loadBundledReportParts();
+
+    if (!rows.length) {
+      const csvText = await fetchCsvWithFallback();
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      rows = parsed.data
+        .map((row) => normalizeRow(row, 'SPC'))
+        .filter(Boolean);
+    }
+
+    state.rows = rows
+      .sort((a, b) => String(a.beginDate || '').localeCompare(String(b.beginDate || '')) || 
+                      String(a.beginTime || '').localeCompare(String(b.beginTime || '')));
+
+    state.spcRows = await loadSpcRows();
+
+    if (!state.rows.length && !state.spcRows.length) {
+      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
+    }
+
+    refreshYearBounds(true);
+    renderFilteredData({ preserveMapView: true });
+    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(
+      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
+      true
+    );
+  }
+}
+
 async function loadBundledReportParts() {
   const fileNames = [
     '1950-2026_Tornado_Reports_part1.csv',
@@ -185,45 +224,6 @@ async function loadSpcRows() {
   } catch (error) {
     console.warn('Unable to load SPC rows:', error);
     return [];
-  }
-}
-
-async function loadData() {
-  try {
-    let rows = await loadBundledReportParts();
-
-    if (!rows.length) {
-      const csvText = await fetchCsvWithFallback();
-      const parsed = Papa.parse(csvText, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
-
-      rows = parsed.data
-        .map((row) => normalizeRow(row, 'SPC'))
-        .filter(Boolean);
-    }
-
-    state.rows = rows
-      .sort((a, b) => String(a.beginDate || '').localeCompare(String(b.beginDate || '')) || 
-                      String(a.beginTime || '').localeCompare(String(b.beginTime || '')));
-
-    state.spcRows = await loadSpcRows();
-
-    if (!state.rows.length && !state.spcRows.length) {
-      throw new Error('No usable tornado rows were found in the bundled CSV files or the SPC CSV.');
-    }
-
-    refreshYearBounds(true);
-    renderFilteredData({ preserveMapView: true });
-    setStatus(`Loaded ${state.rows.length.toLocaleString()} primary report rows and ${state.spcRows.length.toLocaleString()} SPC rows.`);
-  } catch (error) {
-    console.error(error);
-    setStatus(
-      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
-      true
-    );
   }
 }
 
@@ -1384,6 +1384,30 @@ function bindControls() {
         return;
       }
 
+      const matchYear = Number(match.year || getYearFromDate(match.beginDate));
+      if (matchYear && (matchYear < state.yearMin || matchYear > state.yearMax)) {
+        state.yearMin = Math.min(state.yearMin, matchYear);
+        state.yearMax = Math.max(state.yearMax, matchYear);
+        
+        // Update the underlying DOM inputs before calling updateFilterReadouts
+        // so it doesn't overwrite our new state with the old HTML values
+        const yearMinInput = document.getElementById('yearMin');
+        const yearMaxInput = document.getElementById('yearMax');
+        if (yearMinInput) yearMinInput.value = state.yearMin;
+        if (yearMaxInput) yearMaxInput.value = state.yearMax;
+        
+        const rangeToggleBtn = document.getElementById('yearRangeToggleBtn');
+        if (rangeToggleBtn && state.yearMin !== state.yearMax) {
+          rangeToggleBtn.setAttribute('aria-expanded', 'true');
+          rangeToggleBtn.textContent = 'Range on';
+          document.querySelector('.year-end-mini')?.classList.remove('hidden');
+          document.querySelector('.year-end-slider')?.classList.remove('hidden');
+        }
+        
+        updateFilterReadouts();
+        renderFilteredData({ preserveMapView: true });
+      }
+
       state.selectedId = match.id;
       renderEditor();
       renderDetailsPanel(match);
@@ -1510,7 +1534,7 @@ function bindControls() {
       };
 
       // 1. Copy Button
-      const copyBtn = createTinyBtn('📑', 'Copy field value');
+      const copyBtn = createTinyBtn('📑', 'Copy');
       copyBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         try {
@@ -1523,7 +1547,7 @@ function bindControls() {
       });
 
       // 2. Paste Button
-      const pasteBtn = createTinyBtn('📋', 'Paste into field');
+      const pasteBtn = createTinyBtn('📋', 'Paste');
       pasteBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         try {
@@ -1595,15 +1619,18 @@ function toCsv(rows) {
 
 function renderFilteredData(options = {}) {
   const { preserveMapView = false } = options;
+  
   const primaryRows = state.rows.filter((row) => {
-    const rowYear = Number(row.year || getYearFromDate(row.beginDate));
+    // Check for beginYear first, then fallback to year, then fallback to parsing the timestamps
+    const rowYear = Number(row.beginYear || row.year || getYearFromDate(row.beginTimestamp || row.beginDate));
     return rowYear >= state.yearMin && rowYear <= state.yearMax;
   });
 
   let spcRows = [];
   if (state.spcLayerVisible) {
     spcRows = state.spcRows.filter((row) => {
-      const rowYear = Number(row.year || getYearFromDate(row.beginDate));
+      // Same fix here for the SPC data
+      const rowYear = Number(row.beginYear || row.year || getYearFromDate(row.beginTimestamp || row.beginDate));
       const inRange = rowYear >= state.yearMin && rowYear <= state.yearMax;
       const multiCountyPass = !state.spcMultiCountyOnly || isMultiCountyRow(row);
       return inRange && multiCountyPass;
@@ -1614,9 +1641,7 @@ function renderFilteredData(options = {}) {
     ...(state.spcLayerVisible ? spcRows : []),
     ...(state.nceiLayerVisible ? primaryRows : []),
   ];
-  state.filtered = filtered;
-  if (state.polyLines) state.polyLines.clear();
-
+  
   if (state.layerGroup) {
     state.layerGroup.clearLayers();
     if (!state.map.hasLayer(state.layerGroup)) {
@@ -1642,30 +1667,48 @@ function renderFilteredData(options = {}) {
   let bounds = L.latLngBounds([]);
 
   filtered.forEach((row) => {
+    // 1. Parse coordinates safely
+    const startLat = parseFloat(row.beginLatitude);
+    const startLon = parseFloat(row.beginLongitude);
+    const endLat = parseFloat(row.endLatitude);
+    const endLon = parseFloat(row.endLongitude);
+
+    // 2. Validate coordinates before trying to draw
+    const hasStart = !isNaN(startLat) && !isNaN(startLon);
+    const hasEnd = !isNaN(endLat) && !isNaN(endLon);
+
+    // If we don't even have a valid start coordinate, skip this row entirely so it doesn't crash the map
+    if (!hasStart) return; 
+
+    const startPoint = [startLat, startLon];
+    const endPoint = hasEnd ? [endLat, endLon] : null;
+
     const isSpc = row.source === 'SPC';
     const color = getUnifiedTrackColor(row.magnitude);
-    const startPoint = [row.beginLatitude, row.beginLongitude];
-    const endPoint = [row.endLatitude, row.endLongitude];
     const layerOpacity = isSpc ? state.spcOpacity : state.nceiOpacity;
 
-    const polyline = L.polyline([startPoint, endPoint], {
-      color,
-      weight: row.id === state.selectedId ? 6 : 3,
-      opacity: layerOpacity,
-      lineCap: 'round',
-      dashArray: isSpc ? '8 8' : null,
-    });
+    // --- DRAW POLYLINE (Only if we have an end point) ---
+    if (hasEnd) {
+      const polyline = L.polyline([startPoint, endPoint], {
+        color,
+        weight: row.id === state.selectedId ? 6 : 3,
+        opacity: layerOpacity,
+        lineCap: 'round',
+        dashArray: isSpc ? '8 8' : null,
+      });
 
-    if (row.source !== 'CSV') {
-      polyline.bindPopup(buildPopup(row));
+      if (row.source !== 'CSV') {
+        polyline.bindPopup(buildPopup(row));
+      }
+      polyline.on('click', async (event) => {
+        L.DomEvent.stopPropagation(event);
+        await handleTrackSelection(row, true);
+      });
+      polyline.addTo(state.layerGroup);
+      state.polyLines.set(row.id, polyline);
     }
-    polyline.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    polyline.addTo(state.layerGroup);
-    state.polyLines.set(row.id, polyline);
 
+    // --- DRAW START MARKER ---
     const startIcon = L.divIcon({
       className: 'ncei-start-icon',
       html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.5); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,      iconSize: [8, 8],
@@ -1685,27 +1728,34 @@ function renderFilteredData(options = {}) {
     });
     startMarker.addTo(state.layerGroup);
 
-    const endIcon = L.divIcon({
-      className: 'ncei-end-icon',
-      html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,
-      iconSize: [8, 8],
-      iconAnchor: [4, 4]
-    });
-    
-    const endMarker = L.marker(endPoint, {
-      icon: endIcon,
-      opacity: layerOpacity,
-      zIndexOffset: 0
-    });
-    
-    if (row.source !== 'CSV') endMarker.bindPopup(buildPopup(row));
-    endMarker.on('click', async (event) => {
-      L.DomEvent.stopPropagation(event);
-      await handleTrackSelection(row, true);
-    });
-    endMarker.addTo(state.layerGroup);
+    // --- DRAW END MARKER (Only if we have an end point) ---
+    if (hasEnd) {
+      const endIcon = L.divIcon({
+        className: 'ncei-end-icon',
+        html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,
+        iconSize: [8, 8],
+        iconAnchor: [4, 4]
+      });
+      
+      const endMarker = L.marker(endPoint, {
+        icon: endIcon,
+        opacity: layerOpacity,
+        zIndexOffset: 0
+      });
+      
+      if (row.source !== 'CSV') endMarker.bindPopup(buildPopup(row));
+      endMarker.on('click', async (event) => {
+        L.DomEvent.stopPropagation(event);
+        await handleTrackSelection(row, true);
+      });
+      endMarker.addTo(state.layerGroup);
 
-    bounds.extend([startPoint, endPoint]);
+      // Extend bounds to include both points
+      bounds.extend([startPoint, endPoint]);
+    } else {
+      // Extend bounds for just the start point
+      bounds.extend([startPoint]);
+    }
   });
 
   const stats = calculateStats(filtered);
