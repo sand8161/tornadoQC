@@ -42,6 +42,8 @@ const state = {
   baseTileLayer: null,
   theme: 'dark',
   radarRequestToken: 0,
+  countyGeoJSON: null,
+  wfoGeoJSON: null,
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -76,6 +78,26 @@ async function init() {
   state.map.createPane('datPointsPane');
   state.map.getPane('datPointsPane').style.zIndex = 407; // Elevated above lines
   state.datRenderers.points = L.svg({ pane: 'datPointsPane' });
+  const zoomContainer = document.querySelector('.leaflet-control-zoom');
+  if (zoomContainer) {
+    const resetBtn = L.DomUtil.create('a', '');
+    resetBtn.href = '#';
+    resetBtn.title = 'Reset view';
+    resetBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 5px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
+    
+    L.DomEvent.disableClickPropagation(resetBtn);
+    L.DomEvent.on(resetBtn, 'click', function (e) {
+      L.DomEvent.stop(e);
+      if (state.allBounds && state.allBounds.isValid()) {
+        state.map.fitBounds(state.allBounds, { padding: [30, 30] });
+      } else {
+        zoomToConus();
+      }
+    });
+    
+    // Insert it as the very first child so it appears above '+' and '-'
+    zoomContainer.insertBefore(resetBtn, zoomContainer.firstChild);
+  }
 
   state.layerGroup = L.layerGroup().addTo(state.map);
   state.datLayerGroup = L.layerGroup().addTo(state.map);
@@ -228,48 +250,38 @@ async function loadSpcRows() {
 }
 
 async function loadCountyBoundaries() {
-  const basePath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
+  const countyPath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
+  const wfoPath = 'w_18mr25/w_18mr25'; // Ensure this matches your asset path
 
+  // Load Counties
   try {
-    if (window.location.protocol === 'file:') {
-      console.warn('County boundaries are not available from a file:// page. Use a local web server or GitHub Pages.');
-      return;
-    }
-
-    const shpUrl = resolveAssetUrl(`${basePath}.shp`);
-    const geojson = await shp(shpUrl);
-
-    state.countyLayer = L.geoJSON(geojson, {
-      pane: 'countyPane',
-      style: {
-        color: '#64748b',
-        weight: 1,
-        opacity: 0.55,
-        fillColor: 'transparent',
-        fillOpacity: 0,
-        interactive: false
-      }
-    });
-    state.countyLayer.addTo(state.map);
+    state.countyGeoJSON = await shp(resolveAssetUrl(`${countyPath}.shp`));
   } catch (err) {
     try {
-      const geojsonDir = await shp(resolveAssetUrl(basePath));
-      state.countyLayer = L.geoJSON(geojsonDir, {
-        pane: 'countyPane',
-        renderer: L.svg({ pane: 'countyPane' }),
-        style: {
-          color: '#64748b',
-          weight: 1,
-          opacity: 0.55,
-          fillColor: 'transparent',
-          fillOpacity: 0,
-          interactive: false
-        }
-      });
-      state.countyLayer.addTo(state.map);
-    } catch (dirErr) {
-      console.warn('Failed to load county shapefile:', err, dirErr);
+      state.countyGeoJSON = await shp(resolveAssetUrl(countyPath));
+    } catch (e) {
+      console.warn('Failed to load county shapefile:', e);
     }
+  }
+
+  // Load WFOs
+  try {
+    state.wfoGeoJSON = await shp(resolveAssetUrl(`${wfoPath}.shp`));
+  } catch (err) {
+    try {
+      state.wfoGeoJSON = await shp(resolveAssetUrl(wfoPath));
+    } catch (e) {
+      console.warn('Failed to load WFO shapefile:', e);
+    }
+  }
+
+  if (state.countyGeoJSON) {
+    state.countyLayer = L.geoJSON(state.countyGeoJSON, {
+      pane: 'countyPane',
+      style: {
+        color: '#64748b', weight: 1, opacity: 0.55, fillColor: 'transparent', interactive: false
+      }
+    }).addTo(state.map);
   }
 }
 
@@ -725,6 +737,54 @@ async function updateIemRadar() {
   }
 }
 
+async function fetchStormEventDetails(eventId) {
+  if (!eventId) return null;
+  try {
+    setStatus(`Fetching live NCEI database info for Event ID ${eventId}...`);
+    const url = `https://www.ncdc.noaa.gov/stormevents/eventdetails.jsp?id=${eventId}`;
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    
+    const response = await fetch(proxyUrl, { cache: 'no-store' });
+    const data = await response.json();
+    
+    // Parse the HTML response to extract event data
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(data.contents, 'text/html');
+    
+    const eventData = {};
+    const rows = doc.querySelectorAll('table tr');
+    
+    rows.forEach(row => {
+      const th = row.querySelector('th');
+      const td = row.querySelector('td');
+      if (th && td) {
+        const key = th.textContent.trim().replace(/:$/, ''); // Remove trailing colon
+        eventData[key] = td.textContent.trim();
+      }
+    });
+    
+    // Extract Narratives (usually contained in specific span blocks)
+    const eventNarrativeSpan = doc.evaluate("//span[contains(text(), 'Event Narrative')]/following-sibling::span", doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    if (eventNarrativeSpan) eventData['Event Narrative'] = eventNarrativeSpan.textContent.trim();
+
+    const episodeNarrativeSpan = doc.evaluate("//span[contains(text(), 'Episode Narrative')]/following-sibling::span", doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+    if (episodeNarrativeSpan) eventData['Episode Narrative'] = episodeNarrativeSpan.textContent.trim();
+
+    // --- ADDED FOR TESTING ---
+    console.log(`===== RAW SCRAPED API DATA FOR EVENT ${eventId} =====`);
+    console.log(eventData);
+    window.lastFetchedApiData = eventData; // Exposes it so you can type lastFetchedApiData in the console
+    // -------------------------
+
+    setStatus(`Successfully fetched API data for Event ${eventId}.`, false);
+    return eventData;
+  } catch (err) {
+    console.warn('Failed to fetch NCEI Event Data:', err);
+    setStatus(`Failed to fetch API data for Event ID ${eventId}.`, true);
+    return null;
+  }
+}
+
 function bindControls() {
   const yearMinInput = document.getElementById('yearMin');
   const yearMaxInput = document.getElementById('yearMax');
@@ -1129,16 +1189,6 @@ function bindControls() {
     });
   }
 
-  if (resetButton) {
-    resetButton.addEventListener('click', () => {
-      if (state.allBounds && state.allBounds.isValid()) {
-        state.map.fitBounds(state.allBounds, { padding: [24, 24] });
-        return;
-      }
-      zoomToConus();
-    });
-  }
-
   if (csvInput) {
     csvInput.addEventListener('change', async (event) => {
       const file = event.target.files && event.target.files[0];
@@ -1205,38 +1255,416 @@ function bindControls() {
     });
   }
 
+  // 2. Updated Export Logic with Exact UGC Formatting and Full Schema
   if (exportButton) {
-    exportButton.addEventListener('click', () => {
+    exportButton.addEventListener('click', async () => { 
       if (!state.corrections.size) {
         setStatus('No corrections to export yet.', true);
         return;
       }
 
-      const rows = Array.from(state.corrections.values()).map((entry) => ({
-        source: entry.source,
-        reportId: entry.reportId,
-        beginDate: entry.beginDate,
-        beginTime: entry.beginTime,
-        endDate: entry.endDate,
-        endTime: entry.endTime,
-        beginLatitude: entry.beginLatitude,
-        beginLongitude: entry.beginLongitude,
-        endLatitude: entry.endLatitude,
-        endLongitude: entry.endLongitude,
-        magnitude: entry.magnitude,
-        qcNotes: entry.qcNotes,
-        originalReportId: entry.originalReportId,
-      }));
+      const stateFipsMap = {
+        '01':'AL', '02':'AK', '04':'AZ', '05':'AR', '06':'CA', '08':'CO', '09':'CT', '10':'DE',
+        '11':'DC', '12':'FL', '13':'GA', '15':'HI', '16':'ID', '17':'IL', '18':'IN', '19':'IA',
+        '20':'KS', '21':'KY', '22':'LA', '23':'ME', '24':'MD', '25':'MA', '26':'MI', '27':'MN',
+        '28':'MS', '29':'MO', '30':'MT', '31':'NE', '32':'NV', '33':'NH', '34':'NJ', '35':'NM',
+        '36':'NY', '37':'NC', '38':'ND', '39':'OH', '40':'OK', '41':'OR', '42':'PA', '44':'RI',
+        '45':'SC', '46':'SD', '47':'TN', '48':'TX', '49':'UT', '50':'VT', '51':'VA', '53':'WA',
+        '54':'WV', '55':'WI', '56':'WY', '60':'AS', '66':'GU', '69':'MP', '72':'PR', '78':'VI'
+      };
+
+      const isPointInGeoJSON = (lon, lat, geometry) => {
+        if (!geometry) return false;
+        const checkPoly = (rings) => {
+          let inPoly = false;
+          for (let i = 0; i < rings.length; i++) {
+            let inRing = false;
+            const ring = rings[i];
+            for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+              const xi = ring[j][0], yi = ring[j][1];
+              const xj = ring[k][0], yj = ring[k][1];
+              const intersect = ((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+              if (intersect) inRing = !inRing;
+            }
+            if (i === 0) inPoly = inRing; 
+            else if (inRing) inPoly = false; 
+          }
+          return inPoly;
+        };
+        if (geometry.type === 'Polygon') return checkPoly(geometry.coordinates);
+        if (geometry.type === 'MultiPolygon') {
+          for (const poly of geometry.coordinates) {
+            if (checkPoly(poly)) return true;
+          }
+        }
+        return false;
+      };
+
+      // Helper to calculate original offsets for UTC to Local time conversions
+      const parseSpcTimestamp = (ts) => {
+        if (!ts || String(ts).trim() === 'nan') return null;
+        const match = String(ts).match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/);
+        if (!match) return null;
+        return new Date(Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]));
+      };
+
+      const formatLocalDate = (d) => {
+        if (isNaN(d) || !d) return '';
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}/${d.getUTCFullYear()}`;
+      };
+      
+      const formatLocalTime = (d) => {
+        if (isNaN(d) || !d) return '';
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00`;
+      };
+
+      setStatus(`Fetching NCEI data for ${state.corrections.size} reports... This may take a moment.`);
+      
+      const rows = [];
+      for (const entry of Array.from(state.corrections.values())) {
+        const originalRecord = state.rows.find(r => r.reportId === entry.originalReportId || r.id === entry.originalReportId) || {};
+        const raw = originalRecord._raw || {};
+        
+        let apiData = {};
+        if (entry.reportId) {
+          const fetched = await fetchStormEventDetails(entry.reportId);
+          if (fetched) apiData = fetched;
+        }
+
+        const lat = entry.beginLatitude;
+        const lon = entry.beginLongitude;
+        
+        let countyProps = {};
+        let wfoProps = {};
+        
+        // Spatial Lookup using Shapefiles
+        if (lat !== undefined && lon !== undefined) {
+          if (state.countyGeoJSON) {
+            const cFeatures = Array.isArray(state.countyGeoJSON) ? state.countyGeoJSON[0].features : state.countyGeoJSON.features;
+            for (const feature of cFeatures) {
+              if (isPointInGeoJSON(lon, lat, feature.geometry)) {
+                countyProps = feature.properties;
+                break;
+              }
+            }
+          }
+          if (state.wfoGeoJSON) {
+            const wFeatures = Array.isArray(state.wfoGeoJSON) ? state.wfoGeoJSON[0].features : state.wfoGeoJSON.features;
+            for (const feature of wFeatures) {
+              if (isPointInGeoJSON(lon, lat, feature.geometry)) {
+                wfoProps = feature.properties;
+                break;
+              }
+            }
+          }
+        }
+
+        // Handle Time Conversions to Local Time
+        const origUtcDate = parseSpcTimestamp(raw['beginTimestamp']);
+        const origLocalDate = parseSpcTimestamp(raw['beginTimestampLocal']);
+        const offsetMs = (origLocalDate && origUtcDate) ? (origLocalDate.getTime() - origUtcDate.getTime()) : 0;
+
+        const newBeginUtc = new Date(`${entry.beginDate}T${entry.beginTime}:00Z`);
+        const newEndUtc = new Date(`${entry.endDate}T${entry.endTime}:00Z`);
+
+        const newBeginLocal = new Date(newBeginUtc.getTime() + offsetMs);
+        const newEndLocal = new Date(newEndUtc.getTime() + offsetMs);
+
+        const beginDateStr = formatLocalDate(newBeginLocal);
+        const endDateStr = formatLocalDate(newEndLocal);
+        const beginTimeStr = formatLocalTime(newBeginLocal);
+        const endTimeStr = formatLocalTime(newEndLocal);
+        
+        // Build Narratives from requested columns
+        let eventNarr = raw['overview'] || apiData['Event Narrative'] || '';
+        if (entry.qcNotes) {
+          eventNarr = `[QC NOTE: ${entry.qcNotes}] ${eventNarr}`.trim();
+        }
+        let epNarr = raw['details'] || apiData['Episode Narrative'] || '';
+        let eventSrc = raw['source'] || apiData['Event Source'] || '';
+        let epId = raw['stormEventsEpisodeID'] || apiData['Episode ID'] || '';
+
+        // Generate FIPS and UGC Strings dynamically
+        const stateAbbr = countyProps.STATEFP ? stateFipsMap[countyProps.STATEFP] : (apiData['State'] || raw['State'] || '');
+        const countyFips3 = countyProps.COUNTYFP ? countyProps.COUNTYFP : (raw['County FIPS'] ? String(raw['County FIPS']).slice(-3) : '');
+        
+        const ugcString = (stateAbbr && countyFips3) 
+            ? `${stateAbbr}-C${countyFips3}.1` 
+            : (apiData['UGC Location ID'] || raw['UGC Location ID'] || '');
+            
+        let mag = entry.magnitude !== undefined ? entry.magnitude : (apiData['Magnitude'] || raw['Magnitude'] || '');
+        mag = String(mag).replace(/EF/i, '').trim();
+
+        // Construct the row prioritizing: QC Input -> API -> Original CSV
+        const rowData = {
+          'Event Type': apiData['Event Type'] || raw['Event Type'] || 'Tornado',
+          'WFO': wfoProps.WFO || apiData['WFO'] || raw['WFO'] || '',
+          'Year': beginDateStr ? beginDateStr.split('/')[2] : (apiData['Year'] || raw['Year'] || ''),
+          'Month': beginDateStr ? beginDateStr.split('/')[0] : (apiData['Month'] || raw['Month'] || ''),
+          'Begin Date/Time': beginDateStr && beginTimeStr ? `${beginDateStr} ${beginTimeStr}` : (apiData['Begin Date/Time'] || raw['Begin Date/Time'] || ''),
+          'End Date/Time': endDateStr && endTimeStr ? `${endDateStr} ${endTimeStr}` : (apiData['End Date/Time'] || raw['End Date/Time'] || ''),
+          'Begin Date': beginDateStr || apiData['Begin Date'] || raw['Begin Date'] || '',
+          'End Date': endDateStr || apiData['End Date'] || raw['End Date'] || '',
+          'Begin Time': beginTimeStr || apiData['Begin Time'] || raw['Begin Time'] || '',
+          'End Time': endTimeStr || apiData['End Time'] || raw['End Time'] || '',
+          'Timezone': apiData['Time Zone'] || apiData['Timezone'] || raw['Timezone'] || '', // <-- Updated this line
+          'UGC Location ID': ugcString,
+          'State': stateAbbr ? stateAbbr.toUpperCase() : '',
+          'County FIPS': countyFips3, // Extracted 3-digit only
+          'County Name': String(countyProps.NAME || apiData['County Name'] || raw['county'] || raw['County Name'] || '').toUpperCase(),
+          'Region': wfoProps.REGION || apiData['Region'] || raw['Region'] || '',
+          'Direct Injuries': entry.injuries !== undefined ? entry.injuries : (apiData['Direct Injuries'] || raw['Direct Injuries'] || 0),
+          'Indirect Injuries': apiData['Indirect Injuries'] || raw['Indirect Injuries'] || 0,
+          'Direct Fatalities': entry.deaths !== undefined ? entry.deaths : (apiData['Direct Fatalities'] || raw['Direct Fatalities'] || 0),
+          'Indirect Fatalities': apiData['Indirect Fatalities'] || raw['Indirect Fatalities'] || 0,
+          'Property Damage': apiData['Property Damage'] || raw['Property Damage'] || '',
+          'Crop Damage': apiData['Crop Damage'] || raw['Crop Damage'] || '',
+          'Criteria Met Date/Time': apiData['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
+          'Magnitude': mag,
+          'Magnitude Type': apiData['Magnitude Type'] || raw['Magnitude Type'] || '',
+          'Flood Cause': apiData['Flood Cause'] || raw['Flood Cause'] || '',
+          'Hurricane Category': apiData['Hurricane Category'] || raw['Hurricane Category'] || '',
+          'Tornado F-Scale': (entry.magnitude !== undefined && entry.magnitude !== 'EFU') ? `EF${entry.magnitude}` : (apiData['Tornado F-Scale'] || raw['Tornado F-Scale'] || ''),
+          'Tornado Length (miles)': entry.lengthMiles !== undefined ? entry.lengthMiles : (apiData['Tornado Length (miles)'] || raw['Tornado Length (miles)'] || ''),
+          'Tornado Width (yards)': entry.widthYards !== undefined ? entry.widthYards : (apiData['Tornado Width (yards)'] || raw['Tornado Width (yards)'] || ''),
+          'Tornado Continued in WFO': apiData['Tornado Continued in WFO'] || raw['Tornado Continued in WFO'] || '',
+          'Tornado Continued in UGC': apiData['Tornado Continued in UGC'] || raw['Tornado Continued in UGC'] || '',
+          'Event Source': eventSrc,
+          'Event Narrative': eventNarr,
+          'Episode Narrative': epNarr,
+          'Event ID': entry.reportId || apiData['Event ID'] || raw['Event ID'] || '',
+          'Episode ID': epId
+        };
+
+        // Construct dynamic Location columns (forced to UPPERCASE)
+        for (let i = 1; i <= 8; i++) {
+          const locStr = `Location #${i} (City/Range/Azimuth)`;
+          const latStr = `Location #${i} (Lat)`;
+          const lonStr = `Location #${i} (Lon)`;
+          
+          let locVal = apiData[locStr] || raw[locStr] || '';
+          rowData[locStr] = String(locVal).toUpperCase();
+          
+          if (i === 1) {
+            rowData[latStr] = entry.beginLatitude !== undefined ? entry.beginLatitude : (apiData[latStr] || raw[latStr] || '');
+            rowData[lonStr] = entry.beginLongitude !== undefined ? entry.beginLongitude : (apiData[lonStr] || raw[lonStr] || '');
+          } else if (i === 2) {
+            rowData[latStr] = entry.endLatitude !== undefined ? entry.endLatitude : (apiData[latStr] || raw[latStr] || '');
+            rowData[lonStr] = entry.endLongitude !== undefined ? entry.endLongitude : (apiData[lonStr] || raw[lonStr] || '');
+          } else {
+            rowData[latStr] = apiData[latStr] || raw[latStr] || '';
+            rowData[lonStr] = apiData[lonStr] || raw[lonStr] || '';
+          }
+        }
+        
+        rows.push(rowData);
+      } // End of async for-loop
 
       const csv = toCsv(rows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'tornado_qc_corrections.csv';
+      anchor.download = 'events_formatted.csv';
       anchor.click();
       URL.revokeObjectURL(url);
-      setStatus(`Exported ${rows.length} correction row(s).`);
+      setStatus(`Exported ${rows.length} fully formatted NCEI event row(s).`);
+    });
+  }
+
+  const exportOriginalButton = document.getElementById('exportOriginalCorrections');
+
+  if (exportOriginalButton) {
+    exportOriginalButton.addEventListener('click', () => {
+      if (!state.corrections.size) {
+        setStatus('No corrections to export yet.', true);
+        return;
+      }
+
+      const parseSpcTimestamp = (ts) => {
+        if (!ts || String(ts).trim() === 'nan') return null;
+        const match = String(ts).match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/);
+        if (!match) return null;
+        return new Date(Date.UTC(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]));
+      };
+
+      const formatSpcTimestamp = (date) => {
+        if (!date || isNaN(date)) return 'nan';
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
+      };
+
+      const rows = Array.from(state.corrections.values()).map((entry) => {
+        const originalRecord = state.rows.find(r => r.reportId === entry.originalReportId || r.id === entry.originalReportId) || {};
+        const raw = originalRecord._raw ? { ...originalRecord._raw } : {};
+        
+        const changes = [];
+        const timeFields = ['beginTime', 'endTime']; // Strictly 4-digit fields
+        
+        const updateField = (rawKey, newValue) => {
+          if (newValue === undefined || newValue === null) return;
+          
+          const oldVal = raw[rawKey];
+          let oldStr = String(oldVal ?? 'nan').trim();
+          let newStr = String(newValue).trim();
+
+          if (['beginLatitude', 'beginLongitude', 'endLatitude', 'endLongitude'].includes(rawKey)) {
+            if (oldStr === '' || Number(oldStr) === 0 || Math.abs(Number(oldStr)) >= 99900) {
+              oldStr = 'nan';
+            }
+          }
+
+          // Force 4-digit padding only for true HHMM fields
+          if (timeFields.includes(rawKey)) {
+            if (oldStr !== 'nan') oldStr = oldStr.padStart(4, '0');
+            newStr = newStr.padStart(4, '0');
+            newValue = newStr; 
+          }
+
+          const isNumeric = oldStr !== 'nan' && newStr !== 'nan' && !isNaN(oldStr) && !isNaN(newStr) && oldStr !== '' && newStr !== '';
+          const isNumericallyEqual = isNumeric && (Number(oldStr) === Number(newStr));
+
+          if (!isNumericallyEqual && oldStr !== newStr) {
+            changes.push(`${rawKey}: ${oldStr} --> ${newStr}`);
+            raw[rawKey] = newValue;
+          } else if (timeFields.includes(rawKey)) {
+            raw[rawKey] = newValue;
+          }
+        };
+
+        updateField('beginLatitude', entry.beginLatitude);
+        updateField('beginLongitude', entry.beginLongitude);
+        updateField('endLatitude', entry.endLatitude);
+        updateField('endLongitude', entry.endLongitude);
+        updateField('tornadoLength', entry.lengthMiles);
+        updateField('tornadoWidth', entry.widthYards);
+        updateField('magnitude', entry.magnitude);
+        
+        const origUtcDate = parseSpcTimestamp(raw['beginTimestamp']);
+        const origLocalDate = parseSpcTimestamp(raw['beginTimestampLocal']);
+        const offsetMs = (origLocalDate && origUtcDate) ? (origLocalDate.getTime() - origUtcDate.getTime()) : 0;
+
+        const newBeginUtc = new Date(`${entry.beginDate}T${entry.beginTime}:00Z`);
+        const newEndUtc = new Date(`${entry.endDate}T${entry.endTime}:00Z`);
+        const pad = (n) => String(n).padStart(2, '0');
+
+        // Capture original timestamps for correct multi-segment sync
+        const origBeginTimestamp = String(originalRecord._raw['beginTimestamp'] ?? 'nan').trim();
+        const origEndTimestamp = String(originalRecord._raw['endTimestamp'] ?? 'nan').trim();
+        const origTornadoBeginTime = String(originalRecord._raw['tornadoBeginTime'] ?? 'nan').trim();
+        const origTornadoEndTime = String(originalRecord._raw['tornadoEndTime'] ?? 'nan').trim();
+
+        if (!isNaN(newBeginUtc)) {
+          const newTimeStr = `${pad(newBeginUtc.getUTCHours())}${pad(newBeginUtc.getUTCMinutes())}`;
+          const newTimestamp = formatSpcTimestamp(newBeginUtc);
+          
+          updateField('beginTimestamp', newTimestamp);
+          updateField('beginTimestampLocal', formatSpcTimestamp(new Date(newBeginUtc.getTime() + offsetMs)));
+          updateField('beginUnix', Math.floor(newBeginUtc.getTime() / 1000));
+          updateField('beginYear', newBeginUtc.getUTCFullYear());
+          updateField('beginMonth', newBeginUtc.getUTCMonth() + 1);
+          updateField('beginDay', newBeginUtc.getUTCDate());
+          updateField('beginTime', newTimeStr);
+          
+          // Sync tornadoBeginTime if it originally matched the segment beginTimestamp
+          if (origTornadoBeginTime !== 'nan' && origTornadoBeginTime === origBeginTimestamp) {
+            updateField('tornadoBeginTime', newTimestamp); 
+          }
+        }
+
+        if (!isNaN(newEndUtc)) {
+          const newTimeStr = `${pad(newEndUtc.getUTCHours())}${pad(newEndUtc.getUTCMinutes())}`;
+          const newTimestamp = formatSpcTimestamp(newEndUtc);
+          
+          updateField('endTimestamp', newTimestamp);
+          updateField('endTimestampLocal', formatSpcTimestamp(new Date(newEndUtc.getTime() + offsetMs)));
+          updateField('endUnix', Math.floor(newEndUtc.getTime() / 1000));
+          updateField('endYear', newEndUtc.getUTCFullYear());
+          updateField('endMonth', newEndUtc.getUTCMonth() + 1);
+          updateField('endDay', newEndUtc.getUTCDate());
+          updateField('endTime', newTimeStr);
+          
+          // Sync tornadoEndTime if it originally matched the segment endTimestamp
+          if (origTornadoEndTime !== 'nan' && origTornadoEndTime === origEndTimestamp) {
+            updateField('tornadoEndTime', newTimestamp);
+          }
+        }
+
+        // Segment Duration
+        if (!isNaN(newBeginUtc) && !isNaN(newEndUtc)) {
+          const durationMinutes = Math.round((newEndUtc.getTime() - newBeginUtc.getTime()) / 60000);
+          updateField('durationMin', durationMinutes);
+        }
+
+        // Recalculate totalDurationMin based strictly on the updated tornado times
+        const currentTorBeginStr = String(raw['tornadoBeginTime'] ?? 'nan').trim();
+        const currentTorEndStr = String(raw['tornadoEndTime'] ?? 'nan').trim();
+        
+        if (currentTorBeginStr !== 'nan' && currentTorEndStr !== 'nan') {
+            const torBeginDate = parseSpcTimestamp(currentTorBeginStr);
+            const torEndDate = parseSpcTimestamp(currentTorEndStr);
+            if (torBeginDate && torEndDate) {
+                const totalDiff = Math.round((torEndDate.getTime() - torBeginDate.getTime()) / 60000);
+                updateField('totalDurationMin', totalDiff);
+            }
+        }
+
+        const isValidNote = (note) => {
+          if (note === null || note === undefined) return false;
+          const str = String(note).trim().toLowerCase();
+          return str !== '' && str !== 'nan' && str !== '-99900' && str !== '-99900.0' && str !== '0' && str !== '0.0';
+        };
+
+        if (changes.length > 0) {
+          const changeString = `Changes from QC: ${changes.join('; ')}`;
+          const existingAuto = isValidNote(raw['autoQCnotes']) ? `${raw['autoQCnotes']} | ` : '';
+          raw['autoQCnotes'] = `${existingAuto}${changeString}`;
+        }
+        
+        if (entry.qcNotes) {
+          const existingManual = isValidNote(raw['QCnotes']) ? `${raw['QCnotes']} | ` : '';
+          raw['QCnotes'] = `${existingManual}${entry.qcNotes}`;
+        }
+        
+        if (changes.length > 0 || entry.qcNotes) {
+          raw['QCd'] = 1;
+          raw['corrected'] = 1;
+        }
+
+        const ensurePaddedTime = (key) => {
+          if (raw[key] !== undefined && raw[key] !== null && String(raw[key]).trim() !== 'nan') {
+            raw[key] = String(raw[key]).trim().padStart(4, '0');
+          }
+        };
+
+        const ensurePaddedDatePart = (key) => {
+          if (raw[key] !== undefined && raw[key] !== null && String(raw[key]).trim() !== 'nan') {
+            raw[key] = String(raw[key]).trim().padStart(2, '0');
+          }
+        };
+
+        ensurePaddedTime('beginTime');
+        ensurePaddedTime('endTime');
+        
+        ensurePaddedDatePart('beginMonth');
+        ensurePaddedDatePart('beginDay');
+        ensurePaddedDatePart('endMonth');
+        ensurePaddedDatePart('endDay');
+
+        return raw;
+      });
+
+      const csv = toCsv(rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'tornado_qc_corrections_original_format.csv';
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Exported ${rows.length} row(s) in Original CSV format.`);
     });
   }
 
@@ -2872,12 +3300,12 @@ function getSpcRadarTimeInfo(record) {
 }
 
 function updateExportButtonLabel() {
-  const button = document.getElementById('exportCorrections');
-  if (!button) return;
-
+  const countBadge = document.getElementById('exportCountBadge');
   const count = state.corrections ? state.corrections.size : 0;
-  const baseText = 'Export corrections';
-  button.textContent = count > 0 ? `${baseText} (${count})` : baseText;
+  
+  if (countBadge) {
+    countBadge.textContent = count > 0 ? `(${count})` : '';
+  }
 }
 
 function renderEditor() {

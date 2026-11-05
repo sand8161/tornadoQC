@@ -149,10 +149,14 @@
           </div>
         </details>
 
-        <!-- General Actions -->
-        <div class="actions">
-          <button id="resetViewBtn" type="button">Reset view</button>
-          <button id="exportCorrections" type="button">Export corrections</button>
+        <div class="actions" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+          <div class="layer-header" style="margin-bottom: 8px;">
+            <span class="layer-title" style="color: var(--text);">Export Corrections <strong id="exportCountBadge" style="color: var(--accent);"></strong></span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button id="exportCorrections" type="button" class="secondary" style="font-size: 0.75rem; padding: 6px 4px;">Storm Data Format</button>
+            <button id="exportOriginalCorrections" type="button" class="secondary" style="font-size: 0.75rem; padding: 6px 4px;">Original Format</button>
+          </div>
         </div>
 
         <div class="legends-container">

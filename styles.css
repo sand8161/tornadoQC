@@ -1419,3 +1419,22 @@ body.theme-light .county-name-label > span {
   pointer-events: none;
 }
 
+body.theme-dark .leaflet-bar a {
+  background-color: var(--panel-strong);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+body.theme-dark .leaflet-bar a:hover {
+  background-color: rgba(96, 165, 250, 0.2);
+  color: var(--text);
+}
+
+body.theme-dark .leaflet-bar a.leaflet-disabled {
+  color: var(--muted);
+  background-color: var(--panel);
+}
+
+body.theme-dark .leaflet-control-zoom {
+  border: 1px solid var(--border);
+}
