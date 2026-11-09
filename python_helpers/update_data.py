@@ -57,7 +57,7 @@ def fetch_and_filter_ncei():
          
       print(f"Downloading new data for {year}: {filename}")
       gz_filepath = os.path.join(NCEI_OUT_DIR, filename)
-      file_url = NCEI_DIR_URL + filename
+      file_url = f"{NCEI_DIR_URL.rstrip('/')}/{filename}"
       
       urllib.request.urlretrieve(file_url, gz_filepath)
       
