@@ -174,6 +174,36 @@ async function loadData() {
 }
 
 async function loadBundledReportParts() {
+  const loaded = [];
+  const masterFile = './theas_data/1950-2026_tornado_reports.csv';
+
+  // 1. Try to load the automated master file first
+  try {
+    const response = await fetch(masterFile, { cache: 'no-store' });
+    if (response.ok) {
+      const text = await response.text();
+      const parsed = Papa.parse(text, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => String(header).trim(),
+      });
+
+      const rows = parsed.data
+        .map((row) => normalizeRow(row, 'CSV'))
+        .filter(Boolean);
+
+      if (rows.length) {
+        loaded.push(...rows);
+        return loaded; // Success! Return early.
+      }
+    } else {
+      console.warn(`Master file not available (Status: ${response.status}). Falling back to parts...`);
+    }
+  } catch (error) {
+    console.warn(`Error loading master file, falling back to parts:`, error);
+  }
+
+  // 2. Fallback to the original split parts if the master file fails
   const fileNames = [
     '1950-2026_Tornado_Reports_part1.csv',
     '1950-2026_Tornado_Reports_part2.csv',
@@ -184,8 +214,6 @@ async function loadBundledReportParts() {
     '1950-2026_Tornado_Reports_part7.csv'
   ];
   
-  const loaded = [];
-
   for (const fileName of fileNames) {
     try {
       const response = await fetch(`./${fileName}`, { cache: 'no-store' });
@@ -737,50 +765,123 @@ async function updateIemRadar() {
   }
 }
 
-async function fetchStormEventDetails(eventId) {
-  if (!eventId) return null;
+async function fetchStormEventDetails(eventId, year) {
+  if (!eventId || !year) return null;
+  
   try {
-    setStatus(`Fetching live NCEI database info for Event ID ${eventId}...`);
-    const url = `https://www.ncdc.noaa.gov/stormevents/eventdetails.jsp?id=${eventId}`;
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    setStatus(`Fetching local NCEI data for Event ID ${eventId} (${year})...`);
     
-    const response = await fetch(proxyUrl, { cache: 'no-store' });
-    const data = await response.json();
+    // 1. Load the map to find the exact filename for this year
+    const mapResponse = await fetch('./ncei/file_map.json', { cache: 'no-store' });
+    if (!mapResponse.ok) {
+      throw new Error("Could not load ncei/file_map.json");
+    }
+    const fileMap = await mapResponse.json();
     
-    // Parse the HTML response to extract event data
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(data.contents, 'text/html');
+    const exactFilename = fileMap[year];
+    if (!exactFilename) {
+      throw new Error(`No NCEI file mapping found for year ${year}.`);
+    }
     
-    const eventData = {};
-    const rows = doc.querySelectorAll('table tr');
+    // 2. Target the exact, versioned local CSV file
+    const url = `./ncei/${exactFilename}`;
     
-    rows.forEach(row => {
-      const th = row.querySelector('th');
-      const td = row.querySelector('td');
-      if (th && td) {
-        const key = th.textContent.trim().replace(/:$/, ''); // Remove trailing colon
-        eventData[key] = td.textContent.trim();
-      }
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Failed to load ${url} (Status: ${response.status})`);
+    }
+    
+    const csvText = await response.text();
+    let matchedRow = null;
+    
+    // Parse through the local CSV to find the specific event ID
+    await new Promise((resolve, reject) => {
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        step: function(results, parser) {
+          if (String(results.data.EVENT_ID) === String(eventId)) {
+            matchedRow = results.data;
+            parser.abort(); // Stop parsing once found
+          }
+        },
+        complete: resolve,
+        error: reject
+      });
     });
     
-    // Extract Narratives (usually contained in specific span blocks)
-    const eventNarrativeSpan = doc.evaluate("//span[contains(text(), 'Event Narrative')]/following-sibling::span", doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-    if (eventNarrativeSpan) eventData['Event Narrative'] = eventNarrativeSpan.textContent.trim();
+    if (!matchedRow) {
+      setStatus(`Event ID ${eventId} not found in ${year} data.`, true);
+      return null;
+    }
 
-    const episodeNarrativeSpan = doc.evaluate("//span[contains(text(), 'Episode Narrative')]/following-sibling::span", doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-    if (episodeNarrativeSpan) eventData['Episode Narrative'] = episodeNarrativeSpan.textContent.trim();
+    // Map the raw NCEI CSV headers to match the expected API formatting
+    const eventData = {
+      'Event Type': matchedRow.EVENT_TYPE,
+      'WFO': matchedRow.WFO,
+      'Year': matchedRow.YEAR,
+      'Month': matchedRow.MONTH_NAME,
+      'Begin Date/Time': `${matchedRow.BEGIN_DATE} ${matchedRow.BEGIN_TIME}`,
+      'End Date/Time': `${matchedRow.END_DATE} ${matchedRow.END_TIME}`,
+      'Begin Date': matchedRow.BEGIN_DATE,
+      'End Date': matchedRow.END_DATE,
+      'Begin Time': matchedRow.BEGIN_TIME,
+      'End Time': matchedRow.END_TIME,
+      'Time Zone': matchedRow.CZ_TIMEZONE,
+      'State': matchedRow.STATE,
+      'County Name': matchedRow.CZ_NAME,
+      'Direct Injuries': matchedRow.INJURIES_DIRECT,
+      'Indirect Injuries': matchedRow.INJURIES_INDIRECT,
+      'Direct Fatalities': matchedRow.DEATHS_DIRECT,
+      'Indirect Fatalities': matchedRow.DEATHS_INDIRECT,
+      'Property Damage': matchedRow.DAMAGE_PROPERTY,
+      'Crop Damage': matchedRow.DAMAGE_CROPS,
+      'Magnitude': matchedRow.MAGNITUDE,
+      'Magnitude Type': matchedRow.MAGNITUDE_TYPE,
+      'Flood Cause': matchedRow.FLOOD_CAUSE,
+      'Hurricane Category': matchedRow.HURRICANE_CATEGORY,
+      'Tornado F-Scale': matchedRow.TOR_F_SCALE,
+      'Tornado Length (miles)': matchedRow.TOR_LENGTH,
+      'Tornado Width (yards)': matchedRow.TOR_WIDTH,
+      'Tornado Continued in WFO': matchedRow.TOR_OTHER_WFO,
+      'Tornado Continued in UGC': matchedRow.TOR_OTHER_CZ_FIPS, 
+      'Event Source': matchedRow.SOURCE,
+      'Event Narrative': matchedRow.EVENT_NARRATIVE,
+      'Episode Narrative': matchedRow.EPISODE_NARRATIVE,
+      'Event ID': matchedRow.EVENT_ID,
+      'Episode ID': matchedRow.EPISODE_ID,
+    };
 
-    // --- ADDED FOR TESTING ---
-    console.log(`===== RAW SCRAPED API DATA FOR EVENT ${eventId} =====`);
-    console.log(eventData);
-    window.lastFetchedApiData = eventData; // Exposes it so you can type lastFetchedApiData in the console
-    // -------------------------
+    // Construct the composite location fields
+    if (matchedRow.BEGIN_LOCATION) {
+      eventData['Location #1 (City/Range/Azimuth)'] = `${matchedRow.BEGIN_LOCATION} / ${matchedRow.BEGIN_RANGE} / ${matchedRow.BEGIN_AZIMUTH}`.toUpperCase();
+      eventData['Location #1 (Lat)'] = matchedRow.BEGIN_LAT;
+      eventData['Location #1 (Lon)'] = matchedRow.BEGIN_LON;
+      // Expose raw original fields so the exporter can recalculate dynamic vectors
+      eventData['_beginLoc'] = matchedRow.BEGIN_LOCATION;
+      eventData['_beginRange'] = matchedRow.BEGIN_RANGE;
+      eventData['_beginAzimuth'] = matchedRow.BEGIN_AZIMUTH;
+      eventData['_beginLatOrig'] = matchedRow.BEGIN_LAT;
+      eventData['_beginLonOrig'] = matchedRow.BEGIN_LON;
+    }
+    
+    if (matchedRow.END_LOCATION) {
+      eventData['Location #2 (City/Range/Azimuth)'] = `${matchedRow.END_LOCATION} / ${matchedRow.END_RANGE} / ${matchedRow.END_AZIMUTH}`.toUpperCase();
+      eventData['Location #2 (Lat)'] = matchedRow.END_LAT;
+      eventData['Location #2 (Lon)'] = matchedRow.END_LON;
+      // Expose raw original fields so the exporter can recalculate dynamic vectors
+      eventData['_endLoc'] = matchedRow.END_LOCATION;
+      eventData['_endRange'] = matchedRow.END_RANGE;
+      eventData['_endAzimuth'] = matchedRow.END_AZIMUTH;
+      eventData['_endLatOrig'] = matchedRow.END_LAT;
+      eventData['_endLonOrig'] = matchedRow.END_LON;
+    }
 
-    setStatus(`Successfully fetched API data for Event ${eventId}.`, false);
+    setStatus(`Successfully loaded local NCEI data for Event ${eventId}.`, false);
     return eventData;
   } catch (err) {
-    console.warn('Failed to fetch NCEI Event Data:', err);
-    setStatus(`Failed to fetch API data for Event ID ${eventId}.`, true);
+    console.warn('Failed to fetch local NCEI Event Data:', err);
+    setStatus(`Failed to read local NCEI data for Event ID ${eventId}.`, true);
     return null;
   }
 }
@@ -1444,16 +1545,40 @@ function bindControls() {
           const latStr = `Location #${i} (Lat)`;
           const lonStr = `Location #${i} (Lon)`;
           
-          let locVal = apiData[locStr] || raw[locStr] || '';
-          rowData[locStr] = String(locVal).toUpperCase();
-          
           if (i === 1) {
-            rowData[latStr] = entry.beginLatitude !== undefined ? entry.beginLatitude : (apiData[latStr] || raw[latStr] || '');
-            rowData[lonStr] = entry.beginLongitude !== undefined ? entry.beginLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            const newLat = entry.beginLatitude !== undefined ? entry.beginLatitude : (apiData[latStr] || raw[latStr] || '');
+            const newLon = entry.beginLongitude !== undefined ? entry.beginLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            
+            rowData[latStr] = newLat;
+            rowData[lonStr] = newLon;
+            
+            let finalLocStr = apiData[locStr] || raw[locStr] || '';
+            if (apiData['_beginLoc']) {
+              finalLocStr = recalculateLocationVector(
+                apiData['_beginLatOrig'], apiData['_beginLonOrig'], apiData['_beginRange'], apiData['_beginAzimuth'],
+                apiData['_beginLoc'], newLat, newLon
+              );
+            }
+            rowData[locStr] = String(finalLocStr).toUpperCase();
+            
           } else if (i === 2) {
-            rowData[latStr] = entry.endLatitude !== undefined ? entry.endLatitude : (apiData[latStr] || raw[latStr] || '');
-            rowData[lonStr] = entry.endLongitude !== undefined ? entry.endLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            const newLat = entry.endLatitude !== undefined ? entry.endLatitude : (apiData[latStr] || raw[latStr] || '');
+            const newLon = entry.endLongitude !== undefined ? entry.endLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            
+            rowData[latStr] = newLat;
+            rowData[lonStr] = newLon;
+            
+            let finalLocStr = apiData[locStr] || raw[locStr] || '';
+            if (apiData['_endLoc']) {
+              finalLocStr = recalculateLocationVector(
+                apiData['_endLatOrig'], apiData['_endLonOrig'], apiData['_endRange'], apiData['_endAzimuth'],
+                apiData['_endLoc'], newLat, newLon
+              );
+            }
+            rowData[locStr] = String(finalLocStr).toUpperCase();
+            
           } else {
+            rowData[locStr] = String(apiData[locStr] || raw[locStr] || '').toUpperCase();
             rowData[latStr] = apiData[latStr] || raw[latStr] || '';
             rowData[lonStr] = apiData[lonStr] || raw[lonStr] || '';
           }
@@ -3405,4 +3530,61 @@ function calculateGeometryLength(geometry) {
     }
   }
   return totalMiles;
+}
+
+function compassToBearing(compass) {
+  const dirs = {"N":0, "NNE":22.5, "NE":45, "ENE":67.5, "E":90, "ESE":112.5, "SE":135, "SSE":157.5, "S":180, "SSW":202.5, "SW":225, "WSW":247.5, "W":270, "WNW":292.5, "NW":315, "NNW":337.5};
+  return dirs[String(compass).toUpperCase()] !== undefined ? dirs[String(compass).toUpperCase()] : null;
+}
+
+function bearingToCompass(bearing) {
+  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+  const val = Math.floor((bearing / 22.5) + 0.5);
+  return dirs[val % 16];
+}
+
+function getDestinationPoint(lat, lon, distanceMiles, bearingDeg) {
+  const R = 3958.8; // Earth radius in miles
+  const d = distanceMiles;
+  const lat1 = lat * Math.PI / 180;
+  const lon1 = lon * Math.PI / 180;
+  const brng = bearingDeg * Math.PI / 180;
+
+  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d / R) + Math.cos(lat1) * Math.sin(d / R) * Math.cos(brng));
+  const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(d / R) * Math.cos(lat1), Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2));
+
+  return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
+}
+
+function getBearingDeg(lat1, lon1, lat2, lon2) {
+  const rLat1 = lat1 * Math.PI / 180;
+  const rLat2 = lat2 * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+
+  const y = Math.sin(dLon) * Math.cos(rLat2);
+  const x = Math.cos(rLat1) * Math.sin(rLat2) - Math.sin(rLat1) * Math.cos(rLat2) * Math.cos(dLon);
+  let brng = Math.atan2(y, x) * 180 / Math.PI;
+  return (brng + 360) % 360;
+}
+
+function recalculateLocationVector(origLat, origLon, origRange, origAzimuth, cityName, newLat, newLon) {
+  const oLat = Number(origLat), oLon = Number(origLon), oRange = Number(origRange), nLat = Number(newLat), nLon = Number(newLon);
+
+  if (isNaN(oLat) || isNaN(oLon) || isNaN(oRange) || isNaN(nLat) || isNaN(nLon)) {
+      return `${cityName} / ${origRange} / ${origAzimuth}`.toUpperCase();
+  }
+
+  const origBearing = compassToBearing(origAzimuth);
+  if (origBearing === null) return `${cityName} / ${origRange} / ${origAzimuth}`.toUpperCase();
+
+  // 1. Back-calculate the reference city's exact coordinates
+  const cityCoords = getDestinationPoint(oLat, oLon, oRange, (origBearing + 180) % 360);
+
+  // 2. Calculate the new vector from the city to the corrected tornado point
+  const newRange = getDistanceMiles(cityCoords.lat, cityCoords.lon, nLat, nLon);
+  const newBearing = getBearingDeg(cityCoords.lat, cityCoords.lon, nLat, nLon);
+  const newCompass = bearingToCompass(newBearing);
+
+  // NCEI conventionally rounds ranges to the nearest integer
+  return `${cityName} / ${Math.round(newRange)} / ${newCompass}`.toUpperCase();
 }

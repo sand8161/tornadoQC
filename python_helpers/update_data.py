@@ -4,6 +4,7 @@ import gzip
 import os
 import re
 from html.parser import HTMLParser
+import json
 import createReportFile
 
 # URLs
@@ -77,6 +78,17 @@ def fetch_and_filter_ncei():
          if old_file.startswith(f"StormEvents_details-ftp_v1.0_d{year}_c") and old_file != out_filename:
             print(f"Removing outdated file: {old_file}")
             os.remove(os.path.join(NCEI_OUT_DIR, old_file))
+
+   file_map = {}
+   for f in os.listdir(NCEI_OUT_DIR):
+      if f.endswith('.csv') and 'StormEvents_details-ftp_v1.0_d' in f:
+         # Extract the year from the filename
+         match = re.search(r'_d(\d{4})_c', f)
+         if match:
+            file_map[match.group(1)] = f
+                
+   with open(os.path.join(NCEI_OUT_DIR, 'file_map.json'), 'w') as f:
+      json.dump(file_map, f)
 
    return new_data_downloaded
 

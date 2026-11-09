@@ -229,6 +229,8 @@ def main():
    except OSError as err:
       print(f"Something is wrong with the QC file:\n{err}\nSkipping adding QC info.")
 
+   print("Testing")
+
    df["beginYear"]   = [str(btime)[0:4] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
    df["beginMonth"]  = [str(btime)[4:6] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
    df["beginDay"]    = [str(btime)[6:8] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
