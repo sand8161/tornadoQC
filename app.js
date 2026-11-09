@@ -205,13 +205,13 @@ async function loadBundledReportParts() {
 
   // 2. Fallback to the original split parts if the master file fails
   const fileNames = [
-    '1950-2026_Tornado_Reports_part1.csv',
-    '1950-2026_Tornado_Reports_part2.csv',
-    '1950-2026_Tornado_Reports_part3.csv',
-    '1950-2026_Tornado_Reports_part4.csv',
-    '1950-2026_Tornado_Reports_part5.csv',
-    '1950-2026_Tornado_Reports_part6.csv',
-    '1950-2026_Tornado_Reports_part7.csv'
+    './theas_data/1950-2026_Tornado_Reports_part1.csv',
+    './theas_data/1950-2026_Tornado_Reports_part2.csv',
+    './theas_data/1950-2026_Tornado_Reports_part3.csv',
+    './theas_data/1950-2026_Tornado_Reports_part4.csv',
+    './theas_data/1950-2026_Tornado_Reports_part5.csv',
+    './theas_data/1950-2026_Tornado_Reports_part6.csv',
+    './theas_data/1950-2026_Tornado_Reports_part7.csv'
   ];
   
   for (const fileName of fileNames) {
@@ -1479,11 +1479,11 @@ function bindControls() {
         const endTimeStr = formatLocalTime(newEndLocal);
         
         // Build Narratives from requested columns
-        let eventNarr = raw['overview'] || apiData['Event Narrative'] || '';
+        let eventNarr = raw['details'] || apiData['Event Narrative'] || '';
         if (entry.qcNotes) {
           eventNarr = `[QC NOTE: ${entry.qcNotes}] ${eventNarr}`.trim();
         }
-        let epNarr = raw['details'] || apiData['Episode Narrative'] || '';
+        let epNarr = raw['overview'] || apiData['Episode Narrative'] || '';
         let eventSrc = raw['source'] || apiData['Event Source'] || '';
         let epId = raw['stormEventsEpisodeID'] || apiData['Episode ID'] || '';
 
@@ -1523,7 +1523,7 @@ function bindControls() {
           'Property Damage': apiData['Property Damage'] || raw['Property Damage'] || '',
           'Crop Damage': apiData['Crop Damage'] || raw['Crop Damage'] || '',
           'Criteria Met Date/Time': apiData['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
-          'Magnitude': mag,
+          'Magnitude': apiData['Magnitude'] || '',
           'Magnitude Type': apiData['Magnitude Type'] || raw['Magnitude Type'] || '',
           'Flood Cause': apiData['Flood Cause'] || raw['Flood Cause'] || '',
           'Hurricane Category': apiData['Hurricane Category'] || raw['Hurricane Category'] || '',
@@ -1549,9 +1549,6 @@ function bindControls() {
             const newLat = entry.beginLatitude !== undefined ? entry.beginLatitude : (apiData[latStr] || raw[latStr] || '');
             const newLon = entry.beginLongitude !== undefined ? entry.beginLongitude : (apiData[lonStr] || raw[lonStr] || '');
             
-            rowData[latStr] = newLat;
-            rowData[lonStr] = newLon;
-            
             let finalLocStr = apiData[locStr] || raw[locStr] || '';
             if (apiData['_beginLoc']) {
               finalLocStr = recalculateLocationVector(
@@ -1559,14 +1556,16 @@ function bindControls() {
                 apiData['_beginLoc'], newLat, newLon
               );
             }
+            
+            // Insert City/Range/Azimuth FIRST
             rowData[locStr] = String(finalLocStr).toUpperCase();
+            // Then Lat and Lon
+            rowData[latStr] = newLat;
+            rowData[lonStr] = newLon;
             
           } else if (i === 2) {
             const newLat = entry.endLatitude !== undefined ? entry.endLatitude : (apiData[latStr] || raw[latStr] || '');
             const newLon = entry.endLongitude !== undefined ? entry.endLongitude : (apiData[lonStr] || raw[lonStr] || '');
-            
-            rowData[latStr] = newLat;
-            rowData[lonStr] = newLon;
             
             let finalLocStr = apiData[locStr] || raw[locStr] || '';
             if (apiData['_endLoc']) {
@@ -1575,9 +1574,15 @@ function bindControls() {
                 apiData['_endLoc'], newLat, newLon
               );
             }
+            
+            // Insert City/Range/Azimuth FIRST
             rowData[locStr] = String(finalLocStr).toUpperCase();
+            // Then Lat and Lon
+            rowData[latStr] = newLat;
+            rowData[lonStr] = newLon;
             
           } else {
+            // Unchanged fallback logic
             rowData[locStr] = String(apiData[locStr] || raw[locStr] || '').toUpperCase();
             rowData[latStr] = apiData[latStr] || raw[latStr] || '';
             rowData[lonStr] = apiData[lonStr] || raw[lonStr] || '';
