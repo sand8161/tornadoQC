@@ -42,8 +42,17 @@ def main():
       exit()
 
    dfs["tz"] = [getTZoffset(t) for t in dfs["CZ_TIMEZONE"]]
-   dfs["BEGIN_DATE_TIME"] = dfs["BEGIN_YEARMONTH"].astype(str).str.split('.').str[0] + dfs["BEGIN_DAY"].astype(str).str.split('.').str[0].str.zfill(2) + '-' + dfs["BEGIN_TIME"].astype(str).str.split('.').str[0].str.zfill(4)
-   dfs["END_DATE_TIME"]   = dfs["END_YEARMONTH"].astype(str).str.split('.').str[0]   + dfs["END_DAY"].astype(str).str.split('.').str[0].str.zfill(2)   + '-' + dfs["END_TIME"].astype(str).str.split('.').str[0].str.zfill(4)
+   
+   dfs = dfs.dropna(subset=['BEGIN_YEARMONTH', 'BEGIN_DAY', 'BEGIN_TIME', 'END_YEARMONTH', 'END_DAY', 'END_TIME']).copy()
+
+   dfs["BEGIN_DATE_TIME"] = dfs["BEGIN_YEARMONTH"].astype(str).str.split('.').str[0] + \
+                            dfs["BEGIN_DAY"].astype(str).str.split('.').str[0].str.zfill(2) + '-' + \
+                            dfs["BEGIN_TIME"].astype(str).str.split('.').str[0].str.zfill(4).str[:4]
+                            
+   dfs["END_DATE_TIME"]   = dfs["END_YEARMONTH"].astype(str).str.split('.').str[0] + \
+                            dfs["END_DAY"].astype(str).str.split('.').str[0].str.zfill(2) + '-' + \
+                            dfs["END_TIME"].astype(str).str.split('.').str[0].str.zfill(4).str[:4]
+   
    dfs["beginUTC"] = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(stime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
                      for stime, timeZone in zip(dfs["BEGIN_DATE_TIME"], dfs["tz"])]
    dfs["endUTC"] = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(etime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
