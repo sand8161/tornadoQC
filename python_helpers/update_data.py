@@ -39,7 +39,11 @@ def fetch_and_filter_ncei():
    
    new_data_downloaded = False
 
-   for filename in parser.files:
+   existing_files = [f + ".gz" if not f.endswith(".gz") else f for f in os.listdir(NCEI_OUT_DIR)]
+   print(f"Existing files in {NCEI_OUT_DIR}: {existing_files}")
+   new_files = [f for f in parser.files if f not in existing_files]
+
+   for filename in new_files:
       match = file_pattern.search(filename)
       if not match:
          continue
@@ -49,15 +53,11 @@ def fetch_and_filter_ncei():
       # The final unzipped filename we expect to save
       out_filename = filename.replace('.gz', '')
       out_filepath = os.path.join(NCEI_OUT_DIR, out_filename)
-      
-      # Skip if we already have this exact file version[cite: 2]
-      if os.path.exists(out_filepath):
-         print(f"Up to date: {out_filename}")
-         continue
          
       print(f"Downloading new data for {year}: {filename}")
       gz_filepath = os.path.join(NCEI_OUT_DIR, filename)
       file_url = NCEI_DIR_URL + filename
+      print(f"Downloading from {file_url} to {gz_filepath}...")
       
       urllib.request.urlretrieve(file_url, gz_filepath)
       
