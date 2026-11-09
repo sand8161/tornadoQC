@@ -108,9 +108,20 @@ def main():
    replDict = {"[kK]": "*1e3", "[mM]": "*1e6", "[bB]": "*1e9", "[hH]": "*1e2", "\?": '', "0\d": '', "^\." : "0."}
    df["damageProperty"] = dfs["DAMAGE_PROPERTY"].replace(replDict, regex=True).values
    df["damageCrops"]    = dfs["DAMAGE_CROPS"].replace(replDict, regex=True).values
-   df["damageProperty"] = [eval(val) if val and type(val) == str and not val[0] == "*" else np.nan if (val and type(val) == str and val[0] == "*") or val == '' else val for val in df["damageProperty"]]
-   df["damageCrops"]    = [eval(val) if val and type(val) == str and not val[0] == "*" else np.nan if (val and type(val) == str and val[0] == "*") or val == '' else val for val in df["damageCrops"]]
    
+   def safe_eval_damage(val):
+       if not isinstance(val, str) or str(val).strip() == '':
+           return val if pd.notnull(val) else np.nan
+       if val.startswith("*"):
+           return np.nan
+       try:
+           return eval(val)
+       except Exception:
+           return np.nan
+
+   df["damageProperty"] = [safe_eval_damage(val) for val in df["damageProperty"]]
+   df["damageCrops"]    = [safe_eval_damage(val) for val in df["damageCrops"]]
+
    df["source"]         = dfs["SOURCE"].values
    df["overview"]       = dfs["EPISODE_NARRATIVE"].values
    df["details"]        = dfs["EVENT_NARRATIVE"].values
