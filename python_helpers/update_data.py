@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 import createReportFile
 
 # URLs
-NCEI_DIR_URL = "https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles"
+NCEI_DIR_URL = "https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/"
 SPC_URL = "https://www.spc.noaa.gov/wcm/data/1950-2025_all_tornadoes.csv"
 
 # Output Directories
