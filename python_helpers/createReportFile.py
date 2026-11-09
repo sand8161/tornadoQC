@@ -456,10 +456,11 @@ def readRadarCSV(radarFile, latName = '', lonName = '', radName = ''):
 
 def calculateDistVec(lat1, lon1, lat2, lon2, labels = [], limit = None):
    R = 6373.0 
-   rlat1 = np.radians(lat1)
-   rlon1 = np.radians(lon1)
-   rlat2 = np.radians(lat2)
-   rlon2 = np.radians(lon2)
+   rlat1 = np.radians(np.array(lat1, dtype=float))
+   rlon1 = np.radians(np.array(lon1, dtype=float))
+   rlat2 = np.radians(np.array(lat2, dtype=float))
+   rlon2 = np.radians(np.array(lon2, dtype=float))
+   
    dlat = rlat2 - rlat1
    dlon = rlon2 - rlon1
    a = np.sin(dlat / 2)**2 + np.cos(rlat1) * np.cos(rlat2) * np.sin(dlon / 2)**2
@@ -469,9 +470,18 @@ def calculateDistVec(lat1, lon1, lat2, lon2, labels = [], limit = None):
    if len(labels) > 0:
       labels = np.array(labels, dtype=object)
       pairedResult = np.column_stack((distance, labels))
+      
       if limit:
-         pairedResult = pairedResult[pairedResult[:, 0] < limit]
-      return pairedResult[pairedResult[:, 0].argsort()]
+         # Safely extract the distances as floats
+         dists = pairedResult[:, 0].astype(float)
+         # Tell NumPy to ignore the warning when comparing NaNs against the limit
+         with np.errstate(invalid='ignore'):
+             mask = dists < limit
+         pairedResult = pairedResult[mask]
+         
+      # Ensure sorting works cleanly even if NaNs snuck through
+      return pairedResult[pairedResult[:, 0].astype(float).argsort()]
+      
    return distance
 
 def getTZoffset(timeZone):
