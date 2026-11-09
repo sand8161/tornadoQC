@@ -1,10 +1,6 @@
 #############################################################################
 #
-# Reads in StormEvent files from NCEI from a specified folder and year range and writes
-# a comma separated .csv file to specified output directory of tornado, severe hail and severe thunderstorm wind.
-# You can set a time threshold to not include severe reports within a certain time of a tornado.
-#
-# Example command: python createReportFile.py theas_data theas_data/radarInfo.csv ncei 1950 -e 2026 -q theas_data/1950-2026_Tornado_Reports\ -\ Corrected.csv -r True -y True
+# Author: Thea Sandmael
 #
 #############################################################################
 
@@ -42,8 +38,18 @@ def main():
       exit()
 
    dfs["tz"] = [getTZoffset(t) for t in dfs["CZ_TIMEZONE"]]
-   
-   dfs = dfs.dropna(subset=['BEGIN_YEARMONTH', 'BEGIN_DAY', 'BEGIN_TIME', 'END_YEARMONTH', 'END_DAY', 'END_TIME']).copy()
+
+   def safe_utc(dt_str, tz):
+      try:
+         return time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(str(dt_str), "%Y%m%d-%H%M")) - (60*60*tz)))
+      except Exception:
+         return np.nan
+
+   def safe_local(dt_str):
+      try:
+         return time.strftime("%Y%m%d-%H%M", time.strptime(str(dt_str), "%Y%m%d-%H%M"))
+      except Exception:
+         return np.nan
 
    dfs["BEGIN_DATE_TIME"] = dfs["BEGIN_YEARMONTH"].astype(str).str.split('.').str[0] + \
                             dfs["BEGIN_DAY"].astype(str).str.split('.').str[0].str.zfill(2) + '-' + \
@@ -52,34 +58,31 @@ def main():
    dfs["END_DATE_TIME"]   = dfs["END_YEARMONTH"].astype(str).str.split('.').str[0] + \
                             dfs["END_DAY"].astype(str).str.split('.').str[0].str.zfill(2) + '-' + \
                             dfs["END_TIME"].astype(str).str.split('.').str[0].str.zfill(4).str[:4]
+
+   dfs["beginUTC"] = [safe_utc(stime, timeZone) for stime, timeZone in zip(dfs["BEGIN_DATE_TIME"], dfs["tz"])]
+   dfs["endUTC"]   = [safe_utc(etime, timeZone) for etime, timeZone in zip(dfs["END_DATE_TIME"], dfs["tz"])]
    
-   dfs["beginUTC"] = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(stime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
-                     for stime, timeZone in zip(dfs["BEGIN_DATE_TIME"], dfs["tz"])]
-   dfs["endUTC"] = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(etime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
-                   for etime, timeZone in zip(dfs["END_DATE_TIME"], dfs["tz"])]
    dfs.sort_values(by=["beginUTC","endUTC"], inplace=True)
-   dfs["year"] = [int(d[:4]) for d in dfs["beginUTC"]]
+   dfs["year"] = [int(str(d)[:4]) if pd.notnull(d) else np.nan for d in dfs["beginUTC"]]
 
    df = pd.DataFrame()
 
-   df["beginTimestamp"] = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(stime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
-                           for stime, timeZone in zip(dfs["BEGIN_DATE_TIME"], dfs["tz"])]
+   df["beginTimestamp"] = dfs["beginUTC"].values
    df["beginYear"]      = np.nan
    df["beginMonth"]     = np.nan
    df["beginDay"]       = np.nan
    df["beginTime"]      = np.nan
    df["beginUnix"]      = np.nan
-   df["beginTimestampLocal"] = [time.strftime("%Y%m%d-%H%M", time.strptime(stime, "%Y%m%d-%H%M")) for stime in dfs["BEGIN_DATE_TIME"]]
+   df["beginTimestampLocal"] = [safe_local(stime) for stime in dfs["BEGIN_DATE_TIME"]]
    df["beginLongitude"] = dfs["BEGIN_LON"].values
    df["beginLatitude"]  = dfs["BEGIN_LAT"].values
-   df["endTimestamp"]   = [time.strftime("%Y%m%d-%H%M", time.gmtime(timegm(time.strptime(stime, "%Y%m%d-%H%M")) - (60*60*timeZone)))
-                           for stime, timeZone in zip(dfs["END_DATE_TIME"], dfs["tz"])]
+   df["endTimestamp"]   = dfs["endUTC"].values
    df["endYear"]        = np.nan
    df["endMonth"]       = np.nan
    df["endDay"]         = np.nan
    df["endTime"]        = np.nan
    df["endUnix"]        = np.nan
-   df["endTimestampLocal"] = [time.strftime("%Y%m%d-%H%M", time.strptime(stime, "%Y%m%d-%H%M")) for stime in dfs["END_DATE_TIME"]]
+   df["endTimestampLocal"] = [safe_local(etime) for etime in dfs["END_DATE_TIME"]]
    df["endLongitude"]   = dfs["END_LON"].values
    df["endLatitude"]    = dfs["END_LAT"].values
    df["durationMin"]    = np.nan
@@ -215,17 +218,18 @@ def main():
    except OSError as err:
       print(f"Something is wrong with the QC file:\n{err}\nSkipping adding QC info.")
 
-   df["beginYear"]   = [btime[0:4]  for btime in df["beginTimestamp"]]
-   df["beginMonth"]  = [btime[4:6]  for btime in df["beginTimestamp"]]
-   df["beginDay"]    = [btime[6:8]  for btime in df["beginTimestamp"]]
-   df["beginTime"]   = [btime[9:13] for btime in df["beginTimestamp"]]
-   df["beginUnix"]   = [timegm(time.strptime(t, "%Y%m%d-%H%M")) for t in df["beginTimestamp"]]
-   df["endYear"]     = [etime[0:4]  for etime in df["endTimestamp"]]
-   df["endMonth"]    = [etime[4:6]  for etime in df["endTimestamp"]]
-   df["endDay"]      = [etime[6:8]  for etime in df["endTimestamp"]]
-   df["endTime"]     = [etime[9:13] for etime in df["endTimestamp"]]
-   df["endUnix"]     = [timegm(time.strptime(t, "%Y%m%d-%H%M")) for t in df["endTimestamp"]]
-   df["durationMin"] = [int((e - b)/60.0) for b, e in zip(df["beginUnix"], df["endUnix"])]
+   df["beginYear"]   = [str(btime)[0:4] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
+   df["beginMonth"]  = [str(btime)[4:6] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
+   df["beginDay"]    = [str(btime)[6:8] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
+   df["beginTime"]   = [str(btime)[9:13] if pd.notnull(btime) else np.nan for btime in df["beginTimestamp"]]
+   df["beginUnix"]   = [timegm(time.strptime(str(t), "%Y%m%d-%H%M")) if pd.notnull(t) else np.nan for t in df["beginTimestamp"]]
+   
+   df["endYear"]     = [str(etime)[0:4] if pd.notnull(etime) else np.nan for etime in df["endTimestamp"]]
+   df["endMonth"]    = [str(etime)[4:6] if pd.notnull(etime) else np.nan for etime in df["endTimestamp"]]
+   df["endDay"]      = [str(etime)[6:8] if pd.notnull(etime) else np.nan for etime in df["endTimestamp"]]
+   df["endTime"]     = [str(etime)[9:13] if pd.notnull(etime) else np.nan for etime in df["endTimestamp"]]
+   df["endUnix"]     = [timegm(time.strptime(str(t), "%Y%m%d-%H%M")) if pd.notnull(t) else np.nan for t in df["endTimestamp"]]
+   df["durationMin"] = [int((e - b)/60.0) if pd.notnull(e) and pd.notnull(b) else np.nan for b, e in zip(df["beginUnix"], df["endUnix"])]
 
    waterspout = [1 if sp == 1 else 0 for sp in df["spout"]]
    landspout  = [1 if event == "Tornado" and (not pd.isnull(details) and ("landspout" in details.lower() or "land spout" in details.lower())) else 0 for event, details in zip(df["severeType"], df["details"])]
@@ -245,16 +249,18 @@ def main():
    endRadDist = [calculateDistVec(endLat, endLon, radlats, radlons, radlabels, 500)
                 if not pd.isnull(endLat) else np.nan for endLat, endLon in zip(df["endLatitude"],df["endLongitude"])]
 
-   begRadValid = [np.array(dfr.loc[(dfr["first_date"] <= int(btime[:8])) & (dfr["last_date"] >= int(btime[:8])), "icao"].values) for btime in df["beginTimestamp"]]
-   endRadValid = [np.array(dfr.loc[(dfr["first_date"] <= int(etime[:8])) & (dfr["last_date"] >= int(etime[:8])), "icao"].values) for etime in df["endTimestamp"]]
+   begRadValid = [np.array(dfr.loc[(dfr["first_date"] <= int(str(btime)[:8])) & (dfr["last_date"] >= int(str(btime)[:8])), "icao"].values) if pd.notnull(btime) else np.array([]) for btime in df["beginTimestamp"]]
+   endRadValid = [np.array(dfr.loc[(dfr["first_date"] <= int(str(etime)[:8])) & (dfr["last_date"] >= int(str(etime)[:8])), "icao"].values) if pd.notnull(etime) else np.array([]) for etime in df["endTimestamp"]]
+   
    begRadDist = [radarArray[np.isin(radarArray[:, 1], validRads)] if isinstance(radarArray, np.ndarray) else np.nan
                   for radarArray, validRads in zip(begRadDist, begRadValid)]
    endRadDist = [radarArray[np.isin(radarArray[:, 1], validRads)] if isinstance(radarArray, np.ndarray) else np.nan
                   for radarArray, validRads in zip(endRadDist, endRadValid)]
 
    isdualpol = np.array([False for _ in begRadDist])
-   begRadValid_dp = [np.array(dfr.loc[(dfr["dualpol_date"] <= int(btime[:8])), "icao"].values) for btime in df["beginTimestamp"]]
-   endRadValid_dp = [np.array(dfr.loc[(dfr["dualpol_date"] <= int(etime[:8])), "icao"].values) for etime in df["endTimestamp"]]
+   begRadValid_dp = [np.array(dfr.loc[(dfr["dualpol_date"] <= int(str(btime)[:8])), "icao"].values) if pd.notnull(btime) else np.array([]) for btime in df["beginTimestamp"]]
+   endRadValid_dp = [np.array(dfr.loc[(dfr["dualpol_date"] <= int(str(etime)[:8])), "icao"].values) if pd.notnull(etime) else np.array([]) for etime in df["endTimestamp"]]
+   
    begisdualpol = np.array([(begRadarArray.shape[0] > 0 and begRadarArray[0, 1] in begValidRads)
                            if isinstance(begRadarArray, np.ndarray) else False
                            for begRadarArray, begValidRads in zip(begRadDist, begRadValid_dp)])
@@ -326,7 +332,9 @@ def main():
 
    segids = {}
    used_prev = set()
-   assign_order = sorted(tor_ids, key=lambda x: (begin_map.get(x, np.inf), x))
+   # Safe fallback for sorting NaN in begin_map
+   assign_order = sorted(tor_ids, key=lambda x: (begin_map.get(x, np.inf) if pd.notnull(begin_map.get(x)) else np.inf, x))
+   
    for cur in assign_order:
       for prev, _, _ in candidate_prev.get(cur, []):
          if prev not in used_prev:
@@ -359,8 +367,8 @@ def main():
    
    df["tornadoBeginTime"] = df["tornadoBeginTime"].astype(object)
    df["tornadoEndTime"]   = df["tornadoEndTime"].astype(object)
-   df["tornadoBeginTime"] = [datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y%m%d-%H%M") for t in starttimes]
-   df["tornadoEndTime"]   = [datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y%m%d-%H%M") for t in endtimes]
+   df["tornadoBeginTime"] = [datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y%m%d-%H%M") if pd.notnull(t) else np.nan for t in starttimes]
+   df["tornadoEndTime"]   = [datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc).strftime("%Y%m%d-%H%M") if pd.notnull(t) else np.nan for t in endtimes]
    df["totalDurationMin"] = (endtimes - starttimes) / 60
    
    df["magnitude"] = [int(x) if str(x) not in ("U", "", "nan") and not pd.isnull(x) else -1 for x in df["magnitude"]]
@@ -396,7 +404,7 @@ def main():
    
    if "oneTorID" in df.columns and "stormEventsReportID" in df.columns:
       df["tempID"] = [id2 if pd.isnull(id1) else id1 for id1, id2 in zip(df["oneTorID"], df["stormEventsReportID"])]
-      df["temp"] = [df[df["tempID"] == id]["beginUnix"].values[0] for id in df["tempID"]]
+      df["temp"] = [df[df["tempID"] == id]["beginUnix"].values[0] if len(df[df["tempID"] == id]["beginUnix"].values) > 0 else np.nan for id in df["tempID"]]
       df.sort_values(by=["temp", "tempID", "segmentNumber"], inplace=True)
       df.drop(labels=["temp", "tempID"],axis=1,inplace=True)
    
@@ -436,7 +444,7 @@ def readRadarCSV(radarFile, latName = '', lonName = '', radName = ''):
    return dfr, latName, lonName, radName
 
 def calculateDistVec(lat1, lon1, lat2, lon2, labels = [], limit = None):
-   R = 6373.0  # Radius of the Earth in kilometers
+   R = 6373.0 
    rlat1 = np.radians(lat1)
    rlon1 = np.radians(lon1)
    rlat2 = np.radians(lat2)
@@ -456,6 +464,9 @@ def calculateDistVec(lat1, lon1, lat2, lon2, labels = [], limit = None):
    return distance
 
 def getTZoffset(timeZone):
+   if pd.isnull(timeZone):
+      return 0
+   timeZone = str(timeZone)
    if timeZone[-3:].isdigit() or (timeZone[-3] in ["+", '-'] and timeZone[-2:].isdigit()):
       return int(timeZone[-3:])
    elif timeZone[-2:].isdigit() or (timeZone[-2] in ["+", '-'] and timeZone[-1].isdigit()):
