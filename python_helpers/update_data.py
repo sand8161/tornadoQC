@@ -57,7 +57,6 @@ def fetch_and_filter_ncei():
       print(f"Downloading new data for {year}: {filename}")
       gz_filepath = os.path.join(NCEI_OUT_DIR, filename)
       file_url = NCEI_DIR_URL + filename
-      print(f"Downloading from {file_url} to {gz_filepath}...")
       
       urllib.request.urlretrieve(file_url, gz_filepath)
       
@@ -65,15 +64,15 @@ def fetch_and_filter_ncei():
       with gzip.open(gz_filepath, 'rt', encoding='utf-8', errors='replace') as f:
          df = pd.read_csv(f, low_memory=False)
          
-      # Filter for Tornado and Waterspout[cite: 2]
+      # Filter for Tornado and Waterspout
       filtered_df = df[df['EVENT_TYPE'].isin(['Tornado', 'Waterspout'])]
       filtered_df.to_csv(out_filepath, index=False)
       
-      # Clean up the downloaded .gz file[cite: 2]
+      # Clean up the downloaded .gz file
       os.remove(gz_filepath)
       new_data_downloaded = True
       
-      # Remove any older versions for this specific year to prevent clutter[cite: 2]
+      # Remove any older versions for this specific year to prevent clutter
       for old_file in os.listdir(NCEI_OUT_DIR):
          if old_file.startswith(f"StormEvents_details-ftp_v1.0_d{year}_c") and old_file != out_filename:
             print(f"Removing outdated file: {old_file}")
@@ -109,7 +108,7 @@ if __name__ == "__main__":
    ncei_updated = fetch_and_filter_ncei()
    spc_updated = fetch_spc()
 
-   # If any new data was grabbed, rebuild the final formatted CSV[cite: 3]
+   # If any new data was grabbed, rebuild the final formatted CSV
    if ncei_updated:
       print("\nNew data was downloaded! Running report builder...")
       createReportFile.main()
