@@ -3,9 +3,10 @@ import urllib.request
 import gzip
 import os
 import re
-from html.parser import HTMLParser
+import glob
 import json
-import createReportFile
+from html.parser import HTMLParser
+# import createReportFile
 
 # URLs
 NCEI_DIR_URL = "https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/"
@@ -40,7 +41,7 @@ def fetch_and_filter_ncei():
    
    new_data_downloaded = False
 
-   existing_files = []#[f + ".gz" if not f.endswith(".gz") else f for f in os.listdir(NCEI_OUT_DIR)]
+   existing_files = [f + ".gz" if not f.endswith(".gz") else f for f in os.listdir(NCEI_OUT_DIR)]
    new_files = [f for f in parser.files if f not in existing_files]
 
    for filename in new_files:
@@ -91,6 +92,40 @@ def fetch_and_filter_ncei():
 
    return new_data_downloaded
 
+def combine_ncei_files(new_data_downloaded):
+   files = glob.glob(os.path.join(NCEI_OUT_DIR, "StormEvents_details-ftp_*.csv"))
+   if not files:
+      return
+
+   years = []
+   file_pattern = re.compile(r"_d(\d{4})_")
+   for f in files:
+      match = file_pattern.search(f)
+      if match:
+         years.append(int(match.group(1)))
+         
+   if not years:
+      return
+      
+   min_year = min(years)
+   max_year = max(years)
+   combined_filename = os.path.join(NCEI_OUT_DIR, f"{min_year}-{max_year}_ncei_tornadoes.csv")
+   
+   # Only combine if new files were downloaded or the target master file is completely missing
+   if new_data_downloaded or not os.path.exists(combined_filename):
+      print(f"\nCombining {len(files)} NCEI files into {combined_filename}...")
+      
+      dfs = [pd.read_csv(f, dtype=str, low_memory=False) for f in files]
+      combined_df = pd.concat(dfs, ignore_index=True)
+      combined_df.to_csv(combined_filename, index=False)
+      
+      print(f"Successfully saved {combined_filename}.")
+      
+      # Clean up older combined files (e.g. if the max year rolls over)
+      for old_file in glob.glob(os.path.join(NCEI_OUT_DIR, "*_ncei_tornadoes.csv")):
+         if old_file != combined_filename:
+            os.remove(old_file)
+
 def fetch_spc():
    print("Downloading SPC data...")
    try:
@@ -119,8 +154,11 @@ if __name__ == "__main__":
    ncei_updated = fetch_and_filter_ncei()
    spc_updated = fetch_spc()
 
+   # Execute combination logic
+   combine_ncei_files(ncei_updated)
+
    # # If any new data was grabbed, rebuild the final formatted CSV
-   # if ncei_updated:
+   # if ncei_updated or spc_updated:
    #    print("\nNew data was downloaded! Running report builder...")
    #    createReportFile.main()
    #    print("\nReport rebuild complete.")
