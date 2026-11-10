@@ -62,11 +62,11 @@ def fetch_and_filter_ncei():
       
       print(f"Filtering {filename}...")
       with gzip.open(gz_filepath, 'rt', encoding='utf-8', errors='replace') as f:
-         df = pd.read_csv(f, low_memory=False, na_values=['', 'NA', 'NaN', -99])
+         df = pd.read_csv(f, low_memory=False, dtype=str)
          
       # Filter for Tornado and Waterspout
       filtered_df = df[df['EVENT_TYPE'].isin(['Tornado', 'Waterspout'])]
-      filtered_df.to_csv(out_filepath, index=False, na_rep='')
+      filtered_df.to_csv(out_filepath, index=False)
       
       # Clean up the downloaded .gz file
       os.remove(gz_filepath)
