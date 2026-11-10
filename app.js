@@ -1428,10 +1428,10 @@ function bindControls() {
         const originalRecord = state.rows.find(r => r.reportId === entry.originalReportId || r.id === entry.originalReportId) || {};
         const raw = originalRecord._raw || {};
         
-        let apiData = {};
+        let stormevents = {};
         if (entry.reportId) {
           const fetched = await fetchStormEventDetails(entry.reportId);
-          if (fetched) apiData = fetched;
+          if (fetched) stormevents = fetched;
         }
 
         const lat = entry.beginLatitude;
@@ -1479,64 +1479,70 @@ function bindControls() {
         const endTimeStr = formatLocalTime(newEndLocal);
         
         // Build Narratives from requested columns
-        let eventNarr = raw['details'] || apiData['Event Narrative'] || '';
+        let eventNarr = raw['details'] || stormevents['Event Narrative'] || '';
         if (entry.qcNotes) {
           eventNarr = `[QC NOTE: ${entry.qcNotes}] ${eventNarr}`.trim();
         }
-        let epNarr = raw['overview'] || apiData['Episode Narrative'] || '';
-        let eventSrc = raw['source'] || apiData['Event Source'] || '';
-        let epId = raw['stormEventsEpisodeID'] || apiData['Episode ID'] || '';
+        let epNarr = raw['overview'] || stormevents['Episode Narrative'] || '';
+        let eventSrc = raw['source'] || stormevents['Event Source'] || '';
+        let epId = raw['stormEventsEpisodeID'] || stormevents['Episode ID'] || '';
 
         // Generate FIPS and UGC Strings dynamically
-        const stateAbbr = countyProps.STATEFP ? stateFipsMap[countyProps.STATEFP] : (apiData['State'] || raw['State'] || '');
+        const stateAbbr = countyProps.STATEFP ? stateFipsMap[countyProps.STATEFP] : (stormevents['State'] || raw['State'] || '');
         const countyFips3 = countyProps.COUNTYFP ? countyProps.COUNTYFP : (raw['County FIPS'] ? String(raw['County FIPS']).slice(-3) : '');
         
         const ugcString = (stateAbbr && countyFips3) 
             ? `${stateAbbr}-C${countyFips3}.1` 
-            : (apiData['UGC Location ID'] || raw['UGC Location ID'] || '');
+            : (stormevents['UGC Location ID'] || raw['UGC Location ID'] || '');
+
+        const otherStateAbbr = stormevents["TOR_OTHER_CZ_STATE"] ? stormevents["TOR_OTHER_CZ_STATE"] : '';
+        const otherCountyFips3 = stormevents["TOR_OTHER_CZ_FIPS"] ? String(stormevents["TOR_OTHER_CZ_FIPS"]).slice(-3) : '';
+        const ugcStringOther = (otherStateAbbr && otherCountyFips3) 
+            ? `${otherStateAbbr}-C${otherCountyFips3}.1` 
+            : '';
             
-        let mag = entry.magnitude !== undefined ? entry.magnitude : (apiData['Magnitude'] || raw['Magnitude'] || '');
+        let mag = entry.magnitude !== undefined ? entry.magnitude : (stormevents['Magnitude'] || raw['Magnitude'] || '');
         mag = String(mag).replace(/EF/i, '').trim();
 
         // Construct the row prioritizing: QC Input -> API -> Original CSV
         const rowData = {
-          'Event Type': apiData['Event Type'] || raw['Event Type'] || 'Tornado',
-          'WFO': wfoProps.WFO || apiData['WFO'] || raw['WFO'] || '',
-          'Year': beginDateStr ? beginDateStr.split('/')[2] : (apiData['Year'] || raw['Year'] || ''),
-          'Month': beginDateStr ? beginDateStr.split('/')[0] : (apiData['Month'] || raw['Month'] || ''),
-          'Begin Date/Time': beginDateStr && beginTimeStr ? `${beginDateStr} ${beginTimeStr}` : (apiData['Begin Date/Time'] || raw['Begin Date/Time'] || ''),
-          'End Date/Time': endDateStr && endTimeStr ? `${endDateStr} ${endTimeStr}` : (apiData['End Date/Time'] || raw['End Date/Time'] || ''),
-          'Begin Date': beginDateStr || apiData['Begin Date'] || raw['Begin Date'] || '',
-          'End Date': endDateStr || apiData['End Date'] || raw['End Date'] || '',
-          'Begin Time': beginTimeStr || apiData['Begin Time'] || raw['Begin Time'] || '',
-          'End Time': endTimeStr || apiData['End Time'] || raw['End Time'] || '',
-          'Timezone': apiData['Time Zone'] || apiData['Timezone'] || raw['Timezone'] || '', // <-- Updated this line
+          'Event Type': stormevents['Event Type'] || raw['Event Type'] || 'Tornado',
+          'WFO': wfoProps.WFO || stormevents['WFO'] || raw['WFO'] || '',
+          'Year': beginDateStr ? beginDateStr.split('/')[2] : (stormevents['YEAR'] || raw['Year'] || ''),
+          'Month': beginDateStr ? beginDateStr.split('/')[0] : (raw['Month'] || ''),
+          'Begin Date/Time': beginDateStr && beginTimeStr ? `${beginDateStr} ${beginTimeStr}` : (stormevents['Begin Date/Time'] || raw['Begin Date/Time'] || ''),
+          'End Date/Time': endDateStr && endTimeStr ? `${endDateStr} ${endTimeStr}` : (stormevents['End Date/Time'] || raw['End Date/Time'] || ''),
+          'Begin Date': beginDateStr || stormevents['Begin Date'] || raw['Begin Date'] || '',
+          'End Date': endDateStr || stormevents['End Date'] || raw['End Date'] || '',
+          'Begin Time': beginTimeStr || stormevents['Begin Time'] || raw['Begin Time'] || '',
+          'End Time': endTimeStr || stormevents['End Time'] || raw['End Time'] || '',
+          'Timezone': stormevents['Time Zone'] || stormevents['Timezone'] || raw['Timezone'] || '', // <-- Updated this line
           'UGC Location ID': ugcString,
           'State': stateAbbr ? stateAbbr.toUpperCase() : '',
           'County FIPS': countyFips3, // Extracted 3-digit only
-          'County Name': String(countyProps.NAME || apiData['County Name'] || raw['county'] || raw['County Name'] || '').toUpperCase(),
-          'Region': wfoProps.REGION || apiData['Region'] || raw['Region'] || '',
-          'Direct Injuries': entry.injuries !== undefined ? entry.injuries : (apiData['Direct Injuries'] || raw['Direct Injuries'] || 0),
-          'Indirect Injuries': apiData['Indirect Injuries'] || raw['Indirect Injuries'] || 0,
-          'Direct Fatalities': entry.deaths !== undefined ? entry.deaths : (apiData['Direct Fatalities'] || raw['Direct Fatalities'] || 0),
-          'Indirect Fatalities': apiData['Indirect Fatalities'] || raw['Indirect Fatalities'] || 0,
-          'Property Damage': apiData['Property Damage'] || raw['Property Damage'] || '',
-          'Crop Damage': apiData['Crop Damage'] || raw['Crop Damage'] || '',
-          'Criteria Met Date/Time': apiData['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
-          'Magnitude': apiData['Magnitude'] || '',
-          'Magnitude Type': apiData['Magnitude Type'] || raw['Magnitude Type'] || '',
-          'Flood Cause': apiData['Flood Cause'] || raw['Flood Cause'] || '',
-          'Hurricane Category': apiData['Hurricane Category'] || raw['Hurricane Category'] || '',
-          'Tornado F-Scale': (entry.magnitude !== undefined && entry.magnitude !== 'EFU') ? `EF${entry.magnitude}` : (apiData['Tornado F-Scale'] || raw['Tornado F-Scale'] || ''),
-          'Tornado Length (miles)': entry.lengthMiles !== undefined ? entry.lengthMiles : (apiData['Tornado Length (miles)'] || raw['Tornado Length (miles)'] || ''),
-          'Tornado Width (yards)': entry.widthYards !== undefined ? entry.widthYards : (apiData['Tornado Width (yards)'] || raw['Tornado Width (yards)'] || ''),
-          'Tornado Continued in WFO': apiData['Tornado Continued in WFO'] || raw['Tornado Continued in WFO'] || '',
-          'Tornado Continued in UGC': apiData['Tornado Continued in UGC'] || raw['Tornado Continued in UGC'] || '',
+          'County Name': String(countyProps.NAME || stormevents['County Name'] || raw['county'] || raw['County Name'] || '').toUpperCase(),
+          'Region': wfoProps.REGION || stormevents['Region'] || raw['Region'] || '',
+          'Direct Injuries': entry.injuries !== undefined ? entry.injuries : (stormevents['Direct Injuries'] || raw['injuriesDirect'] || 0),
+          'Indirect Injuries': stormevents['Indirect Injuries'] || raw['injuriesIndirect'] || 0,
+          'Direct Fatalities': entry.deaths !== undefined ? entry.deaths : (stormevents['Direct Fatalities'] || raw['deathsDirect'] || 0),
+          'Indirect Fatalities': stormevents['Indirect Fatalities'] || raw['deathsIndirect'] || 0,
+          'Property Damage': stormevents['Property Damage'] || raw['damageProperty'] || '',
+          'Crop Damage': stormevents['Crop Damage'] || raw['damageCrops'] || '',
+          'Criteria Met Date/Time': stormevents['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
+          'Magnitude': stormevents['Magnitude'] || '',
+          'Magnitude Type': stormevents['Magnitude Type'] || raw['Magnitude Type'] || '',
+          'Flood Cause': stormevents['Flood Cause'] || raw['Flood Cause'] || '',
+          'Hurricane Category': stormevents['Hurricane Category'] || raw['Hurricane Category'] || '',
+          'Tornado F-Scale': (entry.magnitude !== undefined && entry.magnitude !== 'EFU') ? `EF${entry.magnitude}` : (stormevents['Tornado F-Scale'] || raw['Tornado F-Scale'] || ''),
+          'Tornado Length (miles)': entry.lengthMiles !== undefined ? entry.lengthMiles : (stormevents['Tornado Length (miles)'] || raw['Tornado Length (miles)'] || ''),
+          'Tornado Width (yards)': entry.widthYards !== undefined ? entry.widthYards : (stormevents['Tornado Width (yards)'] || raw['Tornado Width (yards)'] || ''),
+          'Tornado Continued in WFO': stormevents['TOR_OTHER_WFO'] || stormevents['Tornado Continued in WFO'] || '',
+          'Tornado Continued in UGC': ugcStringOther || stormevents['Tornado Continued in UGC'] || '',
           'Event Source': eventSrc,
           'Event Narrative': eventNarr,
           'Episode Narrative': epNarr,
-          'Event ID': entry.reportId || apiData['Event ID'] || raw['Event ID'] || '',
-          'Episode ID': epId
+          'Event ID': entry.reportId || stormevents['EVENT_ID'] || raw['stormEventsReportID'] || '',
+          'Episode ID': epId || stormevents['EPISODE_ID'] || raw['stormEventsEpisodeID'] || ''
         };
 
         // Construct dynamic Location columns (forced to UPPERCASE)
@@ -1546,14 +1552,14 @@ function bindControls() {
           const lonStr = `Location #${i} (Lon)`;
           
           if (i === 1) {
-            const newLat = entry.beginLatitude !== undefined ? entry.beginLatitude : (apiData[latStr] || raw[latStr] || '');
-            const newLon = entry.beginLongitude !== undefined ? entry.beginLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            const newLat = entry.beginLatitude !== undefined ? entry.beginLatitude : (stormevents[latStr] || raw[latStr] || '');
+            const newLon = entry.beginLongitude !== undefined ? entry.beginLongitude : (stormevents[lonStr] || raw[lonStr] || '');
             
-            let finalLocStr = apiData[locStr] || raw[locStr] || '';
-            if (apiData['_beginLoc']) {
+            let finalLocStr = stormevents[locStr] || raw[locStr] || '';
+            if (stormevents['_beginLoc']) {
               finalLocStr = recalculateLocationVector(
-                apiData['_beginLatOrig'], apiData['_beginLonOrig'], apiData['_beginRange'], apiData['_beginAzimuth'],
-                apiData['_beginLoc'], newLat, newLon
+                stormevents['_beginLatOrig'], stormevents['_beginLonOrig'], stormevents['_beginRange'], stormevents['_beginAzimuth'],
+                stormevents['_beginLoc'], newLat, newLon
               );
             }
             
@@ -1564,14 +1570,14 @@ function bindControls() {
             rowData[lonStr] = newLon;
             
           } else if (i === 2) {
-            const newLat = entry.endLatitude !== undefined ? entry.endLatitude : (apiData[latStr] || raw[latStr] || '');
-            const newLon = entry.endLongitude !== undefined ? entry.endLongitude : (apiData[lonStr] || raw[lonStr] || '');
+            const newLat = entry.endLatitude !== undefined ? entry.endLatitude : (stormevents[latStr] || raw[latStr] || '');
+            const newLon = entry.endLongitude !== undefined ? entry.endLongitude : (stormevents[lonStr] || raw[lonStr] || '');
             
-            let finalLocStr = apiData[locStr] || raw[locStr] || '';
-            if (apiData['_endLoc']) {
+            let finalLocStr = stormevents[locStr] || raw[locStr] || '';
+            if (stormevents['_endLoc']) {
               finalLocStr = recalculateLocationVector(
-                apiData['_endLatOrig'], apiData['_endLonOrig'], apiData['_endRange'], apiData['_endAzimuth'],
-                apiData['_endLoc'], newLat, newLon
+                stormevents['_endLatOrig'], stormevents['_endLonOrig'], stormevents['_endRange'], stormevents['_endAzimuth'],
+                stormevents['_endLoc'], newLat, newLon
               );
             }
             
@@ -1583,9 +1589,9 @@ function bindControls() {
             
           } else {
             // Unchanged fallback logic
-            rowData[locStr] = String(apiData[locStr] || raw[locStr] || '').toUpperCase();
-            rowData[latStr] = apiData[latStr] || raw[latStr] || '';
-            rowData[lonStr] = apiData[lonStr] || raw[lonStr] || '';
+            rowData[locStr] = String(stormevents[locStr] || raw[locStr] || '').toUpperCase();
+            rowData[latStr] = stormevents[latStr] || raw[latStr] || '';
+            rowData[lonStr] = stormevents[lonStr] || raw[lonStr] || '';
           }
         }
         

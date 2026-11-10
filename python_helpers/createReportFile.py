@@ -305,43 +305,86 @@ def main():
    for col in ["issuedUnix", "issuedTimeDiff"]:
        df[col] = np.nan
 
-   endlats  = df["endLatitude"].values
-   endlons  = df["endLongitude"].values
    tor_ids = df["stormEventsReportID"].values
-   
-   iddists = [calculateDistVec(lat, lon, endlats, endlons, tor_ids, 1) for lat, lon in zip(df["beginLatitude"], df["beginLongitude"])]
    begin_map = df.set_index("stormEventsReportID")["beginUnix"].to_dict()
    end_map = df.set_index("stormEventsReportID")["endUnix"].to_dict()
    county_map = df.set_index("stormEventsReportID")["county"].to_dict()
 
    candidate_prev = {cur: [] for cur in tor_ids}
-   for dist, cur in zip(iddists, tor_ids):
-      if len(dist) == 0:
-         continue
-      cur_begin = begin_map.get(cur, np.nan)
-      cur_end = end_map.get(cur, np.nan)
-      cur_county = county_map.get(cur, np.nan)
-      if pd.isnull(cur_begin) or pd.isnull(cur_end):
-         continue
-      for d in dist:
-         prev = d[1]
-         if prev == cur:
+
+   for year, group in df.groupby('year'):
+      g_endlats = group["endLatitude"].values
+      g_endlons = group["endLongitude"].values
+      g_ids = group["stormEventsReportID"].values
+      
+      g_iddists = [calculateDistVec(lat, lon, g_endlats, g_endlons, g_ids, 1) for lat, lon in zip(group["beginLatitude"], group["beginLongitude"])]
+      
+      for dist, cur in zip(g_iddists, g_ids):
+         if len(dist) == 0:
             continue
-         prev_end = end_map.get(prev, np.nan)
-         prev_county = county_map.get(prev, np.nan)
-         if pd.isnull(prev_end):
+         cur_begin = begin_map.get(cur, np.nan)
+         cur_end = end_map.get(cur, np.nan)
+         cur_county = county_map.get(cur, np.nan)
+         
+         if pd.isnull(cur_begin) or pd.isnull(cur_end):
             continue
+            
+         for d in dist:
+            prev = d[1]
+            if prev == cur:
+               continue
+            prev_end = end_map.get(prev, np.nan)
+            prev_county = county_map.get(prev, np.nan)
+            
+            if pd.isnull(prev_end):
+               continue
 
-         time_gap = cur_begin - prev_end
-         valid_time = (0 <= time_gap <= 60)
-         valid_tie = ((cur_end != end_map.get(prev, np.nan)) or (cur_begin == prev_end and prev < cur))
-         valid_county = (prev_county != cur_county)
+            time_gap = cur_begin - prev_end
+            valid_time = (0 <= time_gap <= 3600)
+            
+            valid_tie = ((cur_end != end_map.get(prev, np.nan)) or (cur_begin == prev_end and prev < cur))
+            valid_county = (prev_county != cur_county)
 
-         if valid_time and valid_tie and valid_county:
-            candidate_prev[cur].append((prev, float(d[0]), time_gap))
+            if valid_time and valid_tie and valid_county:
+               candidate_prev[cur].append((prev, float(d[0]), time_gap))
+   
+   # endlats  = df["endLatitude"].values
+   # endlons  = df["endLongitude"].values
+   # tor_ids = df["stormEventsReportID"].values
+   
+   # iddists = [calculateDistVec(lat, lon, endlats, endlons, tor_ids, 1) for lat, lon in zip(df["beginLatitude"], df["beginLongitude"])]
+   # begin_map = df.set_index("stormEventsReportID")["beginUnix"].to_dict()
+   # end_map = df.set_index("stormEventsReportID")["endUnix"].to_dict()
+   # county_map = df.set_index("stormEventsReportID")["county"].to_dict()
 
-   for cur in candidate_prev.keys():
-      candidate_prev[cur] = sorted(candidate_prev[cur], key=lambda x: (x[2], x[1], x[0]))
+   # candidate_prev = {cur: [] for cur in tor_ids}
+   # for dist, cur in zip(iddists, tor_ids):
+   #    if len(dist) == 0:
+   #       continue
+   #    cur_begin = begin_map.get(cur, np.nan)
+   #    cur_end = end_map.get(cur, np.nan)
+   #    cur_county = county_map.get(cur, np.nan)
+   #    if pd.isnull(cur_begin) or pd.isnull(cur_end):
+   #       continue
+   #    for d in dist:
+   #       prev = d[1]
+   #       if prev == cur:
+   #          continue
+   #       prev_end = end_map.get(prev, np.nan)
+   #       prev_county = county_map.get(prev, np.nan)
+   #       if pd.isnull(prev_end):
+   #          continue
+
+   #       time_gap = cur_begin - prev_end
+   #       valid_time = (0 <= time_gap <= 60)
+   #       valid_tie = ((cur_end != end_map.get(prev, np.nan)) or (cur_begin == prev_end and prev < cur))
+   #       valid_county = (prev_county != cur_county)
+
+   #       if valid_time and valid_tie and valid_county:
+   #          candidate_prev[cur].append((prev, float(d[0]), time_gap))
+
+   # for cur in candidate_prev.keys():
+   #    candidate_prev[cur] = sorted(candidate_prev[cur], key=lambda x: (x[2], x[1], x[0]))
 
    segids = {}
    used_prev = set()
