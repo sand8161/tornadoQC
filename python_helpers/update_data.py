@@ -40,8 +40,7 @@ def fetch_and_filter_ncei():
    
    new_data_downloaded = False
 
-   existing_files = [f + ".gz" if not f.endswith(".gz") else f for f in os.listdir(NCEI_OUT_DIR)]
-   print(f"Existing files in {NCEI_OUT_DIR}: {existing_files}")
+   existing_files = []#[f + ".gz" if not f.endswith(".gz") else f for f in os.listdir(NCEI_OUT_DIR)]
    new_files = [f for f in parser.files if f not in existing_files]
 
    for filename in new_files:
@@ -63,11 +62,11 @@ def fetch_and_filter_ncei():
       
       print(f"Filtering {filename}...")
       with gzip.open(gz_filepath, 'rt', encoding='utf-8', errors='replace') as f:
-         df = pd.read_csv(f, low_memory=False)
+         df = pd.read_csv(f, low_memory=False, na_values=['', 'NA', 'NaN', -99])
          
       # Filter for Tornado and Waterspout
       filtered_df = df[df['EVENT_TYPE'].isin(['Tornado', 'Waterspout'])]
-      filtered_df.to_csv(out_filepath, index=False)
+      filtered_df.to_csv(out_filepath, index=False, na_rep='')
       
       # Clean up the downloaded .gz file
       os.remove(gz_filepath)
@@ -120,10 +119,10 @@ if __name__ == "__main__":
    ncei_updated = fetch_and_filter_ncei()
    spc_updated = fetch_spc()
 
-   # If any new data was grabbed, rebuild the final formatted CSV
-   if ncei_updated:
-      print("\nNew data was downloaded! Running report builder...")
-      createReportFile.main()
-      print("\nReport rebuild complete.")
-   else:
-      print("\nNo new data found. Skipping report rebuild.")
+   # # If any new data was grabbed, rebuild the final formatted CSV
+   # if ncei_updated:
+   #    print("\nNew data was downloaded! Running report builder...")
+   #    createReportFile.main()
+   #    print("\nReport rebuild complete.")
+   # else:
+   #    print("\nNo new data found. Skipping report rebuild.")
