@@ -278,8 +278,8 @@ async function loadSpcRows() {
 }
 
 async function loadCountyBoundaries() {
-  const countyPath = 'cb_2018_us_county_5m/cb_2018_us_county_5m';
-  const wfoPath = 'w_18mr25/w_18mr25'; // Ensure this matches your asset path
+  const countyPath = 'c_16ap26/c_16ap26';
+  const wfoPath = 'w_16ap26/w_16ap26'; // Ensure this matches your asset path
 
   // Load Counties
   try {
@@ -1129,24 +1129,36 @@ function bindControls() {
   }
 
   if (yearStartSlider) {
+    // 1. Updates the text/UI instantly while dragging (no map rendering)
     yearStartSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
       const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
-      applyYearRangeState(showEndYear ? value : value, showEndYear ? state.yearMax : value, true);
+      applyYearRangeState(showEndYear ? value : value, showEndYear ? state.yearMax : value, false);
       syncYearRangeVisibility();
+    });
+    
+    // 2. Redraws the map only when the user releases the mouse
+    yearStartSlider.addEventListener('change', () => {
+      renderFilteredData({ preserveMapView: true });
     });
   }
 
   if (yearEndSlider) {
+    // 1. Updates the text/UI instantly while dragging
     yearEndSlider.addEventListener('input', (event) => {
       const value = Number(event.target.value);
       const showEndYear = yearRangeToggleBtn?.getAttribute('aria-expanded') === 'true';
       if (!showEndYear) {
-        applyYearRangeState(value, value, true);
+        applyYearRangeState(value, value, false);
       } else {
-        applyYearRangeState(state.yearMin, value, true);
+        applyYearRangeState(state.yearMin, value, false);
       }
       syncYearRangeVisibility();
+    });
+    
+    // 2. Redraws the map only when the user releases the mouse
+    yearEndSlider.addEventListener('change', () => {
+      renderFilteredData({ preserveMapView: true });
     });
   }
 
@@ -1500,6 +1512,23 @@ function bindControls() {
         const ugcStringOther = (otherStateAbbr && otherCountyFips3) 
             ? `${otherStateAbbr}-C${otherCountyFips3}.1` 
             : '';
+        const tzLookup = {
+          'V': 'AST', 'E': 'EST', 'C': 'CST', 'M': 'MST', 'P': 'PST',
+          'A': 'AKT', 'H': 'HST', 'G': 'GST', 'J': 'JST', 'S': 'SST'
+        };
+
+        function extractTimeZones(line) {
+          // Matches exactly 5 digits followed by 1 or 2 of the lookup letters
+          const match = line.match(/\b\d{5}([VECMPAHGJS]{1,2})\b/i);
+          
+          if (match) {
+            // Split the matched characters, map them to their 3-letter codes, and return as an array
+            return match[1].toUpperCase().split('').map(char => tzLookup[char]);
+          }
+          
+          return null;
+        }
+        const tz = stormevents['CZ_TIMEZONE'] ? stormevents['CZ_TIMEZONE'].slice(0, 3) : (extractTimeZones(countyProps.TIME_ZONE) || stormevents['Timezone'] || raw['Timezone'] || '');
             
         let mag = entry.magnitude !== undefined ? entry.magnitude : (stormevents['Magnitude'] || raw['Magnitude'] || '');
         mag = String(mag).replace(/EF/i, '').trim();
@@ -1516,7 +1545,7 @@ function bindControls() {
           'End Date': endDateStr || stormevents['End Date'] || raw['End Date'] || '',
           'Begin Time': beginTimeStr || stormevents['Begin Time'] || raw['Begin Time'] || '',
           'End Time': endTimeStr || stormevents['End Time'] || raw['End Time'] || '',
-          'Timezone': stormevents['Time Zone'] || stormevents['Timezone'] || raw['Timezone'] || '', // <-- Updated this line
+          'Timezone': tz,
           'UGC Location ID': ugcString,
           'State': stateAbbr ? stateAbbr.toUpperCase() : '',
           'County FIPS': countyFips3, // Extracted 3-digit only
