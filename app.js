@@ -1,5 +1,4 @@
-const SPC_URL = 'https://www.spc.noaa.gov/wcm/data/1950-2025_all_tornadoes.csv';
-const FALLBACK_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(SPC_URL);
+const SPC_LOCAL_PATH = 'spc/1950-2025_all_tornadoes.csv';
 const SUN_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
 const MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
 
@@ -139,11 +138,17 @@ async function loadData() {
     let rows = await loadBundledReportParts();
 
     if (!rows.length) {
-      const csvText = await fetchCsvWithFallback();
+      const csvText = await fetchLocalSpcCsv();
       const parsed = Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
         transformHeader: (header) => String(header).trim(),
+        transform: (value) => {
+          if (value === '-99' || value === '-99.0' || value === -99) {
+            return NaN;
+          }
+          return value;
+        }
       });
 
       rows = parsed.data
@@ -167,7 +172,7 @@ async function loadData() {
   } catch (error) {
     console.error(error);
     setStatus(
-      'Unable to load the NOAA SPC tornado CSV. Please check the internet connection or upload a local CSV/DAT file.',
+      'Unable to load the local SPC tornado CSV. Please check the file path or upload a local CSV/DAT file.',
       true
     );
   }
@@ -214,30 +219,32 @@ async function loadBundledReportParts() {
   return loaded;
 }
 
-async function fetchCsvWithFallback() {
+async function fetchLocalSpcCsv() {
   try {
-    const response = await fetch(SPC_URL, { cache: 'no-store' });
+    const response = await fetch(SPC_LOCAL_PATH, { cache: 'no-store' });
     if (!response.ok) {
-      throw new Error(`Primary SPC fetch failed with status ${response.status}`);
+      throw new Error(`Local SPC fetch failed with status ${response.status}`);
     }
     return await response.text();
-  } catch (primaryError) {
-    console.warn('Primary SPC CSV fetch failed, trying fallback.', primaryError);
-    const fallbackResponse = await fetch(FALLBACK_URL, { cache: 'no-store' });
-    if (!fallbackResponse.ok) {
-      throw new Error(`SPC fallback fetch failed with status ${fallbackResponse.status}`);
-    }
-    return fallbackResponse.text();
+  } catch (error) {
+    console.error('Failed to fetch local SPC CSV:', error);
+    throw error;
   }
 }
 
 async function loadSpcRows() {
   try {
-    const csvText = await fetchCsvWithFallback();
+    const csvText = await fetchLocalSpcCsv();
     const parsed = Papa.parse(csvText, {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header) => String(header).trim(),
+      transform: (value) => {
+        if (value === '-99' || value === '-99.0' || value === -99) {
+          return NaN;
+        }
+        return value;
+      }
     });
 
     return parsed.data
@@ -2993,23 +3000,21 @@ function refreshYearBounds(initLatest = false) {
 function buildPopup(row) {
   const reportId = row.reportId || row.id || 'N/A';
   const magnitude = row.magnitude ?? row.f2 ?? row.f_2 ?? 'N/A';
-  const county = firstNonEmpty(row.county, row.counties, row.state, 'N/A');
   const start = firstNonEmpty(row.beginDate, row.endDate, 'N/A');
+  const time = row.beginTime || 'N/A';
 
   let html = `
-    <div class="popup-title">${reportId}</div>
+    <div class="popup-title">SPC - ${reportId}</div>
     <div class="popup-grid">
-      <span>Magnitude</span><strong>${magnitude}</strong>
-      <span>Date</span><strong>${start}</strong>
-      <span>County</span><strong>${county}</strong>
-      <span>Source</span><strong>${row.source || 'SPC'}</strong>
+      <span>Time</span><strong>${start} ${time}</strong>
+      <span>Start</span><strong>${row.beginLatitude != null ? Number(row.beginLatitude).toFixed(4) + ',' : 'N/A'} ${row.beginLongitude != null ? Number(row.beginLongitude).toFixed(4) : ''}</strong>
+      <span>End</span><strong>${row.endLatitude != null ? Number(row.endLatitude).toFixed(4) + ',' : 'N/A'} ${row.endLongitude != null ? Number(row.endLongitude).toFixed(4) : ''}</strong>      <span>Magnitude</span><strong>${magnitude}</strong>
+      <span>Injuries</span><strong>${row.injuries || 0}</strong>
+      <span>Fatalities</span><strong>${row.deaths || 0}</strong>
   `;
 
   if (row.lengthMiles) html += `<span>Length</span><strong>${row.lengthMiles} mi</strong>`;
   if (row.widthYards) html += `<span>Width</span><strong>${row.widthYards} yd</strong>`;
-  if (row.injuries > 0 || row.deaths > 0) {
-    html += `<span>Casualties</span><strong>${row.deaths} dead, ${row.injuries} inj</strong>`;
-  }
   
   html += `</div>`;
 
@@ -3159,8 +3164,8 @@ function normalizeRow(row, source) {
   let magnitude = 0;
   for (const candidate of magnitudeCandidates) {
     const rawVal = String(candidate || '').trim().toUpperCase();
-    if (rawVal === 'EFU' || rawVal === 'U') {
-      magnitude = 'EFU';
+    if (rawVal === 'EFU' || rawVal === 'U' || rawVal === 'UNKNOWN' || rawVal === 'N/A' || rawVal === '-9') {
+      magnitude = 'U';
       break;
     }
     const parsed = readFloat(candidate, null);
@@ -3172,7 +3177,7 @@ function normalizeRow(row, source) {
 
   if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
     const upperText = row.magnitude.trim().toUpperCase();
-    if (upperText === 'EFU') {
+    if (upperText === 'EFU' || upperText === 'U') {
       magnitude = 'EFU';
     } else {
       const match = upperText.match(/(\d+)/);
@@ -3216,8 +3221,8 @@ function normalizeRow(row, source) {
     year: Number(firstNonEmpty(row.year, row.yr, getYearFromDate(beginDate), getYearFromDate(endDate), 0) || 0),
     county: firstNonEmpty(row.county, row.COUNTY, row.counties, row['County'], 'Unknown'),
     state: firstNonEmpty(row.state, row.STATE, row['State'], 'Unknown'),
-    lengthMiles: readFloat(firstNonEmpty(row.tornadoLength, row.lengthMiles, row.length_mi, row.length_miles, row['Length (mi)'], row['Length miles'], 0), 0),
-    widthYards: readFloat(firstNonEmpty(row.tornadoWidth, 0), 0),
+    lengthMiles: readFloat(firstNonEmpty(row.tornadoLength, row.lengthMiles, row.len, row.LEN, row.length_mi, row['Length (mi)'], 0), 0),
+    widthYards: readFloat(firstNonEmpty(row.tornadoWidth, row.widthYards, row.wid, row.WID, row.width, 0), 0),
     injuries: readFloat(row.injuriesDirect, 0),
     deaths: readFloat(row.deathsDirect, 0),
     details: firstNonEmpty(row.details, row.overview, ''),
