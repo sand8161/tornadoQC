@@ -152,10 +152,10 @@ def fetch_spc():
 
 if __name__ == "__main__":
    ncei_updated = fetch_and_filter_ncei()
-   spc_updated = fetch_spc()
+   spc_updated  = fetch_spc()
 
    # Execute combination logic
-   combine_ncei_files(ncei_updated)
+   # combine_ncei_files(ncei_updated)
 
    # # If any new data was grabbed, rebuild the final formatted CSV
    # if ncei_updated or spc_updated:

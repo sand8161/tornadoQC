@@ -175,35 +175,7 @@ async function loadData() {
 
 async function loadBundledReportParts() {
   const loaded = [];
-  const masterFile = './theas_data/1950-2026_tornado_reports.csv';
 
-  // 1. Try to load the automated master file first
-  try {
-    const response = await fetch(masterFile, { cache: 'no-store' });
-    if (response.ok) {
-      const text = await response.text();
-      const parsed = Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-        transformHeader: (header) => String(header).trim(),
-      });
-
-      const rows = parsed.data
-        .map((row) => normalizeRow(row, 'CSV'))
-        .filter(Boolean);
-
-      if (rows.length) {
-        loaded.push(...rows);
-        return loaded; // Success! Return early.
-      }
-    } else {
-      console.warn(`Master file not available (Status: ${response.status}). Falling back to parts...`);
-    }
-  } catch (error) {
-    console.warn(`Error loading master file, falling back to parts:`, error);
-  }
-
-  // 2. Fallback to the original split parts if the master file fails
   const fileNames = [
     './theas_data/1950-2026_Tornado_Reports_part1.csv',
     './theas_data/1950-2026_Tornado_Reports_part2.csv',
@@ -278,30 +250,14 @@ async function loadSpcRows() {
 }
 
 async function loadCountyBoundaries() {
-  const countyPath = 'c_16ap26/c_16ap26';
-  const wfoPath = 'w_16ap26/w_16ap26'; // Ensure this matches your asset path
+  const countyPath = 'c_16ap26.zip';
 
   // Load Counties
   try {
-    state.countyGeoJSON = await shp(resolveAssetUrl(`${countyPath}.shp`));
-  } catch (err) {
-    try {
       state.countyGeoJSON = await shp(resolveAssetUrl(countyPath));
     } catch (e) {
       console.warn('Failed to load county shapefile:', e);
     }
-  }
-
-  // Load WFOs
-  try {
-    state.wfoGeoJSON = await shp(resolveAssetUrl(`${wfoPath}.shp`));
-  } catch (err) {
-    try {
-      state.wfoGeoJSON = await shp(resolveAssetUrl(wfoPath));
-    } catch (e) {
-      console.warn('Failed to load WFO shapefile:', e);
-    }
-  }
 
   if (state.countyGeoJSON) {
     state.countyLayer = L.geoJSON(state.countyGeoJSON, {
@@ -844,6 +800,7 @@ async function fetchStormEventDetails(eventId, year) {
       'Tornado Length (miles)': matchedRow.TOR_LENGTH,
       'Tornado Width (yards)': matchedRow.TOR_WIDTH,
       'Tornado Continued in WFO': matchedRow.TOR_OTHER_WFO,
+      'Tornado Continued in State': matchedRow.TOR_OTHER_STATE,
       'Tornado Continued in UGC': matchedRow.TOR_OTHER_CZ_FIPS, 
       'Event Source': matchedRow.SOURCE,
       'Event Narrative': matchedRow.EVENT_NARRATIVE,
@@ -854,7 +811,7 @@ async function fetchStormEventDetails(eventId, year) {
 
     // Construct the composite location fields
     if (matchedRow.BEGIN_LOCATION) {
-      eventData['Location #1 (City/Range/Azimuth)'] = `${matchedRow.BEGIN_LOCATION} / ${matchedRow.BEGIN_RANGE} / ${matchedRow.BEGIN_AZIMUTH}`.toUpperCase();
+      eventData['Location #1 (City/Range/Azimuth)'] = `${matchedRow.BEGIN_RANGE} ${matchedRow.BEGIN_AZIMUTH} ${matchedRow.BEGIN_LOCATION}`.toUpperCase();
       eventData['Location #1 (Lat)'] = matchedRow.BEGIN_LAT;
       eventData['Location #1 (Lon)'] = matchedRow.BEGIN_LON;
       // Expose raw original fields so the exporter can recalculate dynamic vectors
@@ -866,7 +823,7 @@ async function fetchStormEventDetails(eventId, year) {
     }
     
     if (matchedRow.END_LOCATION) {
-      eventData['Location #2 (City/Range/Azimuth)'] = `${matchedRow.END_LOCATION} / ${matchedRow.END_RANGE} / ${matchedRow.END_AZIMUTH}`.toUpperCase();
+      eventData['Location #2 (City/Range/Azimuth)'] = `${matchedRow.END_RANGE} ${matchedRow.END_AZIMUTH} ${matchedRow.END_LOCATION}`.toUpperCase();
       eventData['Location #2 (Lat)'] = matchedRow.END_LAT;
       eventData['Location #2 (Lon)'] = matchedRow.END_LON;
       // Expose raw original fields so the exporter can recalculate dynamic vectors
@@ -1386,33 +1343,6 @@ function bindControls() {
         '54':'WV', '55':'WI', '56':'WY', '60':'AS', '66':'GU', '69':'MP', '72':'PR', '78':'VI'
       };
 
-      const isPointInGeoJSON = (lon, lat, geometry) => {
-        if (!geometry) return false;
-        const checkPoly = (rings) => {
-          let inPoly = false;
-          for (let i = 0; i < rings.length; i++) {
-            let inRing = false;
-            const ring = rings[i];
-            for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
-              const xi = ring[j][0], yi = ring[j][1];
-              const xj = ring[k][0], yj = ring[k][1];
-              const intersect = ((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-              if (intersect) inRing = !inRing;
-            }
-            if (i === 0) inPoly = inRing; 
-            else if (inRing) inPoly = false; 
-          }
-          return inPoly;
-        };
-        if (geometry.type === 'Polygon') return checkPoly(geometry.coordinates);
-        if (geometry.type === 'MultiPolygon') {
-          for (const poly of geometry.coordinates) {
-            if (checkPoly(poly)) return true;
-          }
-        }
-        return false;
-      };
-
       // Helper to calculate original offsets for UTC to Local time conversions
       const parseSpcTimestamp = (ts) => {
         if (!ts || String(ts).trim() === 'nan') return null;
@@ -1438,36 +1368,68 @@ function bindControls() {
       const rows = [];
       for (const entry of Array.from(state.corrections.values())) {
         const originalRecord = state.rows.find(r => r.reportId === entry.originalReportId || r.id === entry.originalReportId) || {};
-        const raw = originalRecord._raw || {};
+        
+        // Clone the raw object so we don't mutate the live map data
+        const raw = { ...(originalRecord._raw || {}) };
+        
+        // Scrub out NCEI's missing data flags
+        for (const key in raw) {
+          const strVal = String(raw[key]).trim();
+          if (strVal === '-99900' || strVal === '-99900.0') {
+            raw[key] = '';
+          }
+        }
         
         let stormevents = {};
         if (entry.reportId) {
-          const fetched = await fetchStormEventDetails(entry.reportId);
+          // Extract the year from the original record (fallback to beginDate if needed)
+          const recordYear = originalRecord.year || (originalRecord.beginDate ? originalRecord.beginDate.substring(0, 4) : null);
+          
+          // Pass BOTH arguments!
+          const fetched = await fetchStormEventDetails(entry.reportId, recordYear);
           if (fetched) stormevents = fetched;
         }
-
-        const lat = entry.beginLatitude;
-        const lon = entry.beginLongitude;
         
         let countyProps = {};
-        let wfoProps = {};
         
-        // Spatial Lookup using Shapefiles
-        if (lat !== undefined && lon !== undefined) {
-          if (state.countyGeoJSON) {
-            const cFeatures = Array.isArray(state.countyGeoJSON) ? state.countyGeoJSON[0].features : state.countyGeoJSON.features;
-            for (const feature of cFeatures) {
-              if (isPointInGeoJSON(lon, lat, feature.geometry)) {
-                countyProps = feature.properties;
-                break;
-              }
-            }
+        // Grab the county and state. Support SPC's 'st' column and NCEI's spelled-out 'STATE'
+        const targetCounty = String(stormevents['County Name'] || raw['County Name'] || raw['county'] || '').trim().toUpperCase();
+        let targetStateAbbr = String(stormevents['State'] || raw['State'] || raw['state'] || raw['st'] || '').trim().toUpperCase();
+        
+        // Dictionary to convert NCEI's fully spelled-out states into 2-letter shapefile abbreviations
+        const fullStateToAbbr = {
+          'ALABAMA':'AL', 'ALASKA':'AK', 'ARIZONA':'AZ', 'ARKANSAS':'AR', 'CALIFORNIA':'CA', 'COLORADO':'CO', 'CONNECTICUT':'CT', 'DELAWARE':'DE',
+          'FLORIDA':'FL', 'GEORGIA':'GA', 'HAWAII':'HI', 'IDAHO':'ID', 'ILLINOIS':'IL', 'INDIANA':'IN', 'IOWA':'IA', 'KANSAS':'KS', 'KENTUCKY':'KY',
+          'LOUISIANA':'LA', 'MAINE':'ME', 'MARYLAND':'MD', 'MASSACHUSETTS':'MA', 'MICHIGAN':'MI', 'MINNESOTA':'MN', 'MISSISSIPPI':'MS', 'MISSOURI':'MO',
+          'MONTANA':'MT', 'NEBRASKA':'NE', 'NEVADA':'NV', 'NEW HAMPSHIRE':'NH', 'NEW JERSEY':'NJ', 'NEW MEXICO':'NM', 'NEW YORK':'NY',
+          'NORTH CAROLINA':'NC', 'NORTH DAKOTA':'ND', 'OHIO':'OH', 'OKLAHOMA':'OK', 'OREGON':'OR', 'PENNSYLVANIA':'PA', 'RHODE ISLAND':'RI',
+          'SOUTH CAROLINA':'SC', 'SOUTH DAKOTA':'SD', 'TENNESSEE':'TN', 'TEXAS':'TX', 'UTAH':'UT', 'VERMONT':'VT', 'VIRGINIA':'VA',
+          'WASHINGTON':'WA', 'WEST VIRGINIA':'WV', 'WISCONSIN':'WI', 'WYOMING':'WY', 'PUERTO RICO': 'PR', 'DISTRICT OF COLUMBIA': 'DC'
+        };
+
+        // If the state is fully spelled out, convert it to the 2-letter abbreviation
+        if (fullStateToAbbr[targetStateAbbr]) {
+           targetStateAbbr = fullStateToAbbr[targetStateAbbr];
+        }
+        
+        // Text-based Lookup using the new NWS Shapefile properties
+        if (targetCounty && state.countyGeoJSON) {
+          const cFeatures = Array.isArray(state.countyGeoJSON) ? state.countyGeoJSON[0].features : state.countyGeoJSON.features;
+          
+          // Debug output for the very first row to verify shapefile structure:
+          if (rows.length === 0) {
+            console.log("DEBUG: Target searching for County:", targetCounty, "State:", targetStateAbbr);
+            console.log("DEBUG: Shapefile Feature 0 Properties:", cFeatures[0].properties);
           }
-          if (state.wfoGeoJSON) {
-            const wFeatures = Array.isArray(state.wfoGeoJSON) ? state.wfoGeoJSON[0].features : state.wfoGeoJSON.features;
-            for (const feature of wFeatures) {
-              if (isPointInGeoJSON(lon, lat, feature.geometry)) {
-                wfoProps = feature.properties;
+          
+          for (const feature of cFeatures) {
+            const featureName = String(feature.properties.COUNTYNAME || '').trim().toUpperCase();
+            const featureStateAbbr = String(feature.properties.STATE || '').trim().toUpperCase();
+            
+            // Match county name, and enforce state match
+            if (featureName === targetCounty) {
+              if (!targetStateAbbr || featureStateAbbr === targetStateAbbr) {
+                countyProps = feature.properties;
                 break;
               }
             }
@@ -1499,16 +1461,19 @@ function bindControls() {
         let eventSrc = raw['source'] || stormevents['Event Source'] || '';
         let epId = raw['stormEventsEpisodeID'] || stormevents['Episode ID'] || '';
 
-        // Generate FIPS and UGC Strings dynamically
-        const stateAbbr = countyProps.STATEFP ? stateFipsMap[countyProps.STATEFP] : (stormevents['State'] || raw['State'] || '');
-        const countyFips3 = countyProps.COUNTYFP ? countyProps.COUNTYFP : (raw['County FIPS'] ? String(raw['County FIPS']).slice(-3) : '');
+        // Extract State Abbreviation and the last 3 digits of the FIPS code directly
+        const stateAbbr = countyProps.STATE || stormevents['State'] || raw['State'] || '';
         
+        // Grab the FIPS code from the shapefile (or raw data as fallback)
+        const rawCountyFips = countyProps.FIPS || raw['County FIPS'] || '';
+        const countyFips3 = rawCountyFips ? String(rawCountyFips).padStart(3, '0').slice(-3) : '';
+        
+        // Combine them into the exact NCEI format: OK-C027.1
         const ugcString = (stateAbbr && countyFips3) 
             ? `${stateAbbr}-C${countyFips3}.1` 
             : (stormevents['UGC Location ID'] || raw['UGC Location ID'] || '');
-
-        const otherStateAbbr = stormevents["TOR_OTHER_CZ_STATE"] ? stormevents["TOR_OTHER_CZ_STATE"] : '';
-        const otherCountyFips3 = stormevents["TOR_OTHER_CZ_FIPS"] ? String(stormevents["TOR_OTHER_CZ_FIPS"]).slice(-3) : '';
+        const otherStateAbbr = stormevents['Tornado Continued in State'] ? stormevents['Tornado Continued in State'] : '';
+        const otherCountyFips3 = stormevents['Tornado Continued in UGC'] ? String(stormevents['Tornado Continued in UGC']).slice(-3) : '';
         const ugcStringOther = (otherStateAbbr && otherCountyFips3) 
             ? `${otherStateAbbr}-C${otherCountyFips3}.1` 
             : '';
@@ -1517,18 +1482,19 @@ function bindControls() {
           'A': 'AKT', 'H': 'HST', 'G': 'GST', 'J': 'JST', 'S': 'SST'
         };
 
-        function extractTimeZones(line) {
-          // Matches exactly 5 digits followed by 1 or 2 of the lookup letters
-          const match = line.match(/\b\d{5}([VECMPAHGJS]{1,2})\b/i);
+        function extractTimeZones(tzCode) {
+          if (!tzCode) return null;
           
-          if (match) {
-            // Split the matched characters, map them to their 3-letter codes, and return as an array
-            return match[1].toUpperCase().split('').map(char => tzLookup[char]);
-          }
+          // Split the letters (handles split counties like "CE" for Central/Eastern)
+          const chars = String(tzCode).toUpperCase().trim().split('');
           
-          return null;
+          // Map to 3-letter codes and remove any undefined matches
+          const mapped = chars.map(char => tzLookup[char]).filter(Boolean);
+          
+          // Returns "CST", or "CST/EST" if the county spans two zones
+          return mapped.length > 0 ? mapped.join('/') : null;
         }
-        const tz = stormevents['CZ_TIMEZONE'] ? stormevents['CZ_TIMEZONE'].slice(0, 3) : (extractTimeZones(countyProps.TIME_ZONE) || stormevents['Timezone'] || raw['Timezone'] || '');
+        const tz = stormevents['Time Zone'] ? stormevents['Time Zone'].slice(0, 3) : (extractTimeZones(countyProps.TIME_ZONE) || stormevents['CZ_TIMEZONE'] || raw['Timezone'] || '');
             
         let mag = entry.magnitude !== undefined ? entry.magnitude : (stormevents['Magnitude'] || raw['Magnitude'] || '');
         mag = String(mag).replace(/EF/i, '').trim();
@@ -1536,7 +1502,7 @@ function bindControls() {
         // Construct the row prioritizing: QC Input -> API -> Original CSV
         const rowData = {
           'Event Type': stormevents['Event Type'] || raw['Event Type'] || 'Tornado',
-          'WFO': wfoProps.WFO || stormevents['WFO'] || raw['WFO'] || '',
+          'WFO': stormevents['WFO'] || raw['CWA'] || '',
           'Year': beginDateStr ? beginDateStr.split('/')[2] : (stormevents['YEAR'] || raw['Year'] || ''),
           'Month': beginDateStr ? beginDateStr.split('/')[0] : (raw['Month'] || ''),
           'Begin Date/Time': beginDateStr && beginTimeStr ? `${beginDateStr} ${beginTimeStr}` : (stormevents['Begin Date/Time'] || raw['Begin Date/Time'] || ''),
@@ -1547,17 +1513,16 @@ function bindControls() {
           'End Time': endTimeStr || stormevents['End Time'] || raw['End Time'] || '',
           'Timezone': tz,
           'UGC Location ID': ugcString,
-          'State': stateAbbr ? stateAbbr.toUpperCase() : '',
+          'State': stateAbbr || stormevents['State'] || raw['State'] || '',
           'County FIPS': countyFips3, // Extracted 3-digit only
-          'County Name': String(countyProps.NAME || stormevents['County Name'] || raw['county'] || raw['County Name'] || '').toUpperCase(),
-          'Region': wfoProps.REGION || stormevents['Region'] || raw['Region'] || '',
+          'County Name': String(raw['county'] || raw['County Name'] || stormevents['County Name'] || '').toUpperCase(),
+          'Region': stormevents['Region'] || raw['NWSRegion'] || '',
           'Direct Injuries': entry.injuries !== undefined ? entry.injuries : (stormevents['Direct Injuries'] || raw['injuriesDirect'] || 0),
           'Indirect Injuries': stormevents['Indirect Injuries'] || raw['injuriesIndirect'] || 0,
           'Direct Fatalities': entry.deaths !== undefined ? entry.deaths : (stormevents['Direct Fatalities'] || raw['deathsDirect'] || 0),
           'Indirect Fatalities': stormevents['Indirect Fatalities'] || raw['deathsIndirect'] || 0,
-          'Property Damage': stormevents['Property Damage'] || raw['damageProperty'] || '',
-          'Crop Damage': stormevents['Crop Damage'] || raw['damageCrops'] || '',
-          'Criteria Met Date/Time': stormevents['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
+          'Property Damage': parseDamageString(stormevents['Property Damage'] || raw['damageProperty'] || ''),
+          'Crop Damage': parseDamageString(stormevents['Crop Damage'] || raw['damageCrops'] || ''),          'Criteria Met Date/Time': stormevents['Criteria Met Date/Time'] || raw['Criteria Met Date/Time'] || '',
           'Magnitude': stormevents['Magnitude'] || '',
           'Magnitude Type': stormevents['Magnitude Type'] || raw['Magnitude Type'] || '',
           'Flood Cause': stormevents['Flood Cause'] || raw['Flood Cause'] || '',
@@ -1565,13 +1530,13 @@ function bindControls() {
           'Tornado F-Scale': (entry.magnitude !== undefined && entry.magnitude !== 'EFU') ? `EF${entry.magnitude}` : (stormevents['Tornado F-Scale'] || raw['Tornado F-Scale'] || ''),
           'Tornado Length (miles)': entry.lengthMiles !== undefined ? entry.lengthMiles : (stormevents['Tornado Length (miles)'] || raw['Tornado Length (miles)'] || ''),
           'Tornado Width (yards)': entry.widthYards !== undefined ? entry.widthYards : (stormevents['Tornado Width (yards)'] || raw['Tornado Width (yards)'] || ''),
-          'Tornado Continued in WFO': stormevents['TOR_OTHER_WFO'] || stormevents['Tornado Continued in WFO'] || '',
-          'Tornado Continued in UGC': ugcStringOther || stormevents['Tornado Continued in UGC'] || '',
+          'Tornado Continued in WFO': stormevents['Tornado Continued in WFO'] || stormevents['TOR_OTHER_WFO'] || '',
+          'Tornado Continued in UGC': ugcStringOther || stormevents['Tornado Continued in UGC'] || stormevents['TOR_OTHER_CZ_FIPS'] || '',
           'Event Source': eventSrc,
           'Event Narrative': eventNarr,
           'Episode Narrative': epNarr,
-          'Event ID': entry.reportId || stormevents['EVENT_ID'] || raw['stormEventsReportID'] || '',
-          'Episode ID': epId || stormevents['EPISODE_ID'] || raw['stormEventsEpisodeID'] || ''
+          'Event ID': entry.reportId || stormevents['Event ID'] || stormevents['EVENT_ID'] || raw['stormEventsReportID'] || '',
+          'Episode ID': epId || stormevents['Episode ID'] || stormevents['EPISODE_ID'] || raw['stormEventsEpisodeID'] || ''
         };
 
         // Construct dynamic Location columns (forced to UPPERCASE)
@@ -2301,17 +2266,16 @@ function renderFilteredData(options = {}) {
       state.polyLines.set(row.id, polyline);
     }
 
-    // --- DRAW START MARKER ---
-    const startIcon = L.divIcon({
-      className: 'ncei-start-icon',
-      html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.5); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,      iconSize: [8, 8],
-      iconAnchor: [4, 4]
-    });
-    const startMarker = L.marker(startPoint, {
-      icon: startIcon,
+// --- DRAW START MARKER ---
+    const startMarker = L.circleMarker(startPoint, {
+      radius: 3,
+      fillColor: color,
+      color: '#ffffff',
+      weight: 0.5,
       opacity: layerOpacity,
-      zIndexOffset: 100
+      fillOpacity: layerOpacity
     });
+    
     if (row.source !== 'CSV') {
       startMarker.bindPopup(buildPopup(row));
     }
@@ -2323,17 +2287,13 @@ function renderFilteredData(options = {}) {
 
     // --- DRAW END MARKER (Only if we have an end point) ---
     if (hasEnd) {
-      const endIcon = L.divIcon({
-        className: 'ncei-end-icon',
-        html: `<div style="box-sizing: border-box; width: 8px; height: 8px; border: 1px solid #f8fafc; background: ${color}; box-shadow: 0 1px 2px rgba(0,0,0,0.4); transform: scale(var(--marker-scale, 1)); transform-origin: center;"></div>`,
-        iconSize: [8, 8],
-        iconAnchor: [4, 4]
-      });
-      
-      const endMarker = L.marker(endPoint, {
-        icon: endIcon,
+      const endMarker = L.circleMarker(endPoint, {
+        radius: 2,
+        fillColor: color,
+        color: '#ffffff',
+        weight: 0.5,
         opacity: layerOpacity,
-        zIndexOffset: 0
+        fillOpacity: layerOpacity
       });
       
       if (row.source !== 'CSV') endMarker.bindPopup(buildPopup(row));
@@ -2992,7 +2952,7 @@ function refreshYearBounds(initLatest = false) {
   if (yearMinInput) {
     yearMinInput.min = String(dataMin);
     yearMinInput.max = String(dataMax);
-    yearMinInput.value = String(initLatest ? dataMax : dataMax);
+    yearMinInput.value = String(initLatest ? dataMax : dataMin);
   }
   
   if (yearMaxInput) {
@@ -3199,7 +3159,7 @@ function normalizeRow(row, source) {
   let magnitude = 0;
   for (const candidate of magnitudeCandidates) {
     const rawVal = String(candidate || '').trim().toUpperCase();
-    if (rawVal === 'EFU') {
+    if (rawVal === 'EFU' || rawVal === 'U') {
       magnitude = 'EFU';
       break;
     }
@@ -3219,13 +3179,6 @@ function normalizeRow(row, source) {
       if (match) {
         magnitude = Number(match[1]);
       }
-    }
-  }
-
-  if (typeof row.magnitude === 'string' && /^(f|ef)/i.test(row.magnitude.trim())) {
-    const match = row.magnitude.trim().match(/(\d+)/);
-    if (match) {
-      magnitude = Number(match[1]);
     }
   }
 
@@ -3611,11 +3564,11 @@ function recalculateLocationVector(origLat, origLon, origRange, origAzimuth, cit
   const oLat = Number(origLat), oLon = Number(origLon), oRange = Number(origRange), nLat = Number(newLat), nLon = Number(newLon);
 
   if (isNaN(oLat) || isNaN(oLon) || isNaN(oRange) || isNaN(nLat) || isNaN(nLon)) {
-      return `${cityName} / ${origRange} / ${origAzimuth}`.toUpperCase();
+      return `${origRange} ${origAzimuth} ${cityName}`.toUpperCase();
   }
 
   const origBearing = compassToBearing(origAzimuth);
-  if (origBearing === null) return `${cityName} / ${origRange} / ${origAzimuth}`.toUpperCase();
+  if (origBearing === null) return `${origRange} ${origAzimuth} ${cityName}`.toUpperCase();
 
   // 1. Back-calculate the reference city's exact coordinates
   const cityCoords = getDestinationPoint(oLat, oLon, oRange, (origBearing + 180) % 360);
@@ -3626,5 +3579,23 @@ function recalculateLocationVector(origLat, origLon, origRange, origAzimuth, cit
   const newCompass = bearingToCompass(newBearing);
 
   // NCEI conventionally rounds ranges to the nearest integer
-  return `${cityName} / ${Math.round(newRange)} / ${newCompass}`.toUpperCase();
+  return `${Math.round(newRange)} ${newCompass} ${cityName}`.toUpperCase();
+}
+
+function parseDamageString(val) {
+  if (val === null || val === undefined || val === '') return '';
+  const str = String(val).trim().toUpperCase();
+  
+  // Match a number (with or without decimals) followed by an optional K, M, or B
+  const match = str.match(/^([\d\.]+)([KMB]?)$/);
+  if (!match) return str; // If it doesn't fit the pattern, return as-is
+  
+  const num = parseFloat(match[1]);
+  if (isNaN(num)) return str;
+  
+  if (match[2] === 'K') return num * 1000;
+  if (match[2] === 'M') return num * 1000000;
+  if (match[2] === 'B') return num * 1000000000;
+  
+  return num;
 }
