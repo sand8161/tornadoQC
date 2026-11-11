@@ -1461,9 +1461,9 @@ function bindControls() {
         
         // Build Narratives from requested columns
         let eventNarr = raw['details'] || stormevents['Event Narrative'] || '';
-        if (entry.qcNotes) {
-          eventNarr = `[QC NOTE: ${entry.qcNotes}] ${eventNarr}`.trim();
-        }
+        // if (entry.qcNotes) {
+        //   eventNarr = `[QC NOTE: ${entry.qcNotes}] ${eventNarr}`.trim();
+        // }
         let epNarr = raw['overview'] || stormevents['Episode Narrative'] || '';
         let eventSrc = raw['source'] || stormevents['Event Source'] || '';
         let epId = raw['stormEventsEpisodeID'] || stormevents['Episode ID'] || '';
